@@ -8,3 +8,9 @@ water/OOB penalties (stroke and distance), scoring, scorecard.
 
 Not yet: Tiger AI opponent, pro shop/currency, consumables (1/2/3), localStorage save/resume, records, sound.
 Course is a stylized, approximate recreation — not survey-accurate.
+
+
+BUGS/COMMENTS:
+- Path on right side of screen is sometimes not accurate -- does not factor in the shape. Flag icon seems slightly misaligned as well.
+- Incrementing the power when putting takes a very long time.
+- 
