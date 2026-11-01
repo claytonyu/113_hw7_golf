@@ -153,7 +153,7 @@ export function strike(g: GS, t: number) {
   g.sim = launchShot(golfer.ball, s)
   g.acc = 0
   g.phase = 'flight'
-  g.trail = [[...golfer.ball]]
+  g.trail = golfer.isAI ? [] : [[...golfer.ball]] // the AI's shots leave no trail, so it can't clutter the player's preview
   g.fast = false
   g.lastContacts = 0
 

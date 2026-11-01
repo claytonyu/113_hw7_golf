@@ -44,6 +44,7 @@ function advanceMeter(g: GS, dt: number) {
  */
 function advanceFlight(g: GS, dt: number) {
   const ball = g.sim!
+  const recordTrail = !active(g).isAI // only the player's shots draw a trail
   g.acc += dt * (g.fast ? FAST_FORWARD : 1)
   let n = 0
   while (g.acc >= DT && n < MAX_STEPS_PER_FRAME) {
@@ -54,7 +55,7 @@ function advanceFlight(g: GS, dt: number) {
       g.lastContacts = ball.contacts
       onContact(g, ball)
     }
-    if (n % 2 === 0 && isMoving(ball)) g.trail.push([...ball.p])
+    if (recordTrail && n % 2 === 0 && isMoving(ball)) g.trail.push([...ball.p])
     if (!isMoving(ball)) break
   }
   if (!isMoving(ball)) finishShot(g)
