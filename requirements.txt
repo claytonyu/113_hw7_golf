@@ -1,0 +1,32 @@
+# Torrey Pines Golf — requirements
+#
+# This is a Node.js / browser project, not Python, so `pip install -r` won't work.
+# The real dependency list is package.json. Install everything with:
+#
+#   npm install
+#
+# Then run the game:
+#
+#   npx vite        (open http://localhost:5173)
+
+# System requirements
+node>=18          # tested on v25.6.0
+npm>=9
+# A modern desktop browser with WebGL 2 (Chrome, Edge, Firefox, Safari)
+
+# Runtime packages (installed by npm install)
+react==18.3.1
+react-dom==18.3.1
+three==0.169.0
+@react-three/fiber==8.17.10
+@react-three/drei==9.114.0
+@react-three/postprocessing==2.16.3
+postprocessing==6.36.3
+
+# Dev / build packages
+vite==5.4.10
+@vitejs/plugin-react==4.3.3
+typescript==5.6.3
+@types/react==18.3.12
+@types/react-dom==18.3.1
+@types/three==0.169.0

@@ -1,0 +1,79 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&display=swap');
+:root { --glass: rgba(12, 26, 38, 0.48); --line: rgba(255,255,255,0.14); --gold: #ffd23f; --mint: #7CFFB2; --ink: #f4f8fb; --dim: rgba(244,248,251,.62); }
+* { box-sizing: border-box; }
+body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; color: var(--ink); }
+.hud { position: absolute; inset: 0; pointer-events: none; user-select: none; }
+.vignette { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,10,20,.45) 100%); }
+.glass { background: var(--glass); backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 10px 40px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.08); }
+.label { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
+.big { font-weight: 800; font-variant-numeric: tabular-nums; }
+
+.holecard { position: absolute; top: 18px; left: 18px; padding: 14px 18px; display: flex; gap: 16px; align-items: center; min-width: 300px; }
+.holenum { width: 58px; height: 58px; border-radius: 16px; display: grid; place-items: center; font-size: 30px; font-weight: 900; background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #1b1b1b; box-shadow: 0 6px 20px rgba(255,180,40,.4); }
+.holename { font-size: 17px; font-weight: 700; }
+.holemeta { font-size: 12px; color: var(--dim); letter-spacing: .08em; }
+.stats { display: flex; gap: 18px; margin-top: 8px; }
+.stat .v { font-size: 22px; font-weight: 800; line-height: 1; }
+.stat .v small { font-size: 12px; font-weight: 600; color: var(--dim); margin-left: 2px; }
+.chip { display: inline-block; padding: 2px 9px; border-radius: 99px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+
+.toast { position: absolute; top: 22px; left: 50%; transform: translateX(-50%); padding: 10px 22px; font-size: 15px; font-weight: 600; animation: drop .35s cubic-bezier(.2,1.4,.4,1); white-space: nowrap; }
+@keyframes drop { from { opacity: 0; transform: translate(-50%, -14px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+.banner { position: absolute; top: 30%; left: 0; right: 0; text-align: center; pointer-events: none; }
+.banner .t { font-size: 84px; font-weight: 900; letter-spacing: .04em; font-style: italic; text-shadow: 0 6px 40px rgba(0,0,0,.45), 0 0 30px currentColor; animation: pop .6s cubic-bezier(.2,1.6,.4,1); }
+.banner .s { font-size: 18px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; opacity: .9; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
+@keyframes pop { from { transform: scale(.4) skewX(-8deg); opacity: 0; } to { transform: scale(1) skewX(0); opacity: 1; } }
+
+.right { position: absolute; top: 18px; right: 18px; display: flex; flex-direction: column; gap: 12px; align-items: flex-end; }
+.wind { padding: 12px; width: 120px; text-align: center; }
+.mini { padding: 10px; width: 170px; }
+.mini canvas { width: 100%; display: block; border-radius: 10px; }
+
+.shotbar { position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); padding: 14px 22px; display: flex; gap: 26px; align-items: center; }
+.clubs { display: flex; align-items: center; gap: 10px; }
+.club { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 14px; background: rgba(255,255,255,.06); color: var(--dim); border: 1px solid var(--line); }
+.club.on { width: 64px; height: 64px; font-size: 22px; color: #111; background: linear-gradient(135deg, #fff, #cfe8ff); box-shadow: 0 0 24px rgba(160,210,255,.5); border: 0; }
+.bar { width: 170px; height: 10px; border-radius: 99px; background: rgba(255,255,255,.1); position: relative; overflow: visible; }
+.bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 99px; background: linear-gradient(90deg, #7CFFB2, #ffd23f, #ff6b6b); }
+.bar .mid { position: absolute; left: 50%; top: -5px; bottom: -5px; width: 2px; background: #fff; opacity: .8; }
+.bar .knob { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
+
+.meter { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); width: min(560px, 80vw); padding: 14px 18px 10px; }
+.track { position: relative; height: 26px; border-radius: 99px; background: linear-gradient(90deg, #ff4d6d 0%, #ff9f1c 30%, #ffd23f 46%, #ffd23f 54%, #ff9f1c 70%, #ff4d6d 100%); box-shadow: inset 0 2px 6px rgba(0,0,0,.35); }
+.zone { position: absolute; top: -3px; bottom: -3px; border-radius: 8px; background: #2dff8f; box-shadow: 0 0 18px #2dff8f, 0 0 4px #fff inset; }
+.needle { position: absolute; top: -10px; bottom: -10px; width: 5px; margin-left: -2.5px; border-radius: 3px; background: #fff; box-shadow: 0 0 10px #fff, 0 0 2px #000; }
+.meter .ends { display: flex; justify-content: space-between; margin-top: 6px; }
+
+.score { position: absolute; bottom: 18px; left: 18px; padding: 12px 14px; }
+.cells { display: flex; gap: 5px; margin-top: 6px; }
+.cell { width: 26px; text-align: center; font-size: 11px; color: var(--dim); }
+.cell .sc { width: 26px; height: 26px; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: var(--ink); margin-top: 2px; border-radius: 6px; background: rgba(255,255,255,.05); }
+.cell.cur .sc { outline: 2px solid var(--gold); }
+.sc.birdie { border-radius: 50%; background: #e63946; } .sc.eagle { border-radius: 50%; background: #ffd23f; color: #111; box-shadow: 0 0 0 2px #e63946; }
+.sc.bogey { background: #2b4c7e; } .sc.dbl { background: #1d2d50; box-shadow: 0 0 0 2px #2b4c7e; }
+
+.keys { position: absolute; bottom: 18px; right: 18px; padding: 10px 14px; font-size: 11px; color: var(--dim); line-height: 1.9; text-align: right; }
+kbd { font-family: inherit; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: rgba(255,255,255,.12); border: 1px solid var(--line); color: var(--ink); margin: 0 1px; }
+
+.confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.confetti i { position: absolute; top: -20px; width: 9px; height: 14px; border-radius: 2px; animation: fall linear forwards; }
+@keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
+
+.skip { position: absolute; bottom: 140px; left: 50%; transform: translateX(-50%); font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); animation: pulse 1.6s infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
+
+/* menu */
+.menu { position: absolute; inset: 0; display: flex; align-items: center; padding: 0 6vw; pointer-events: none; }
+.menu .panel { pointer-events: auto; padding: 36px 40px; max-width: 560px; }
+.title { font-size: 64px; font-weight: 900; line-height: .95; letter-spacing: -.02em; margin: 0; background: linear-gradient(180deg, #fff 30%, #bfe3ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.title span { display: block; font-size: 22px; font-weight: 300; letter-spacing: .5em; color: var(--gold); -webkit-text-fill-color: var(--gold); margin-top: 10px; }
+.nines { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 28px 0 18px; }
+.nine { text-align: left; padding: 18px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--ink); cursor: pointer; font-family: inherit; transition: transform .15s, background .15s, box-shadow .15s; }
+.nine:hover { transform: translateY(-3px); background: rgba(255,210,63,.16); box-shadow: 0 10px 30px rgba(255,210,63,.2); border-color: rgba(255,210,63,.6); }
+.nine b { font-size: 22px; display: block; } .nine small { color: var(--dim); font-size: 12px; }
+.btn { pointer-events: auto; font-family: inherit; font-size: 16px; font-weight: 800; padding: 14px 30px; border-radius: 14px; border: 0; cursor: pointer; background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #1b1b1b; box-shadow: 0 8px 30px rgba(255,170,40,.35); }
+.overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4,12,20,.55); backdrop-filter: blur(6px); }
+.overlay .glass { padding: 30px 36px; max-width: 620px; line-height: 1.7; }
+table.card { border-collapse: separate; border-spacing: 5px; margin: 18px auto; }
+table.card td { text-align: center; min-width: 34px; font-variant-numeric: tabular-nums; }
