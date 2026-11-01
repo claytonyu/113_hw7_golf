@@ -8,7 +8,8 @@ body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; color: var(-
 .label { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); font-weight: 600; }
 .big { font-weight: 800; font-variant-numeric: tabular-nums; }
 
-.holecard { position: absolute; top: 18px; left: 18px; padding: 14px 18px; display: flex; gap: 16px; align-items: center; min-width: 300px; }
+.left { position: absolute; top: 18px; left: 18px; display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.holecard { padding: 14px 18px; display: flex; gap: 16px; align-items: center; min-width: 300px; }
 .holenum { width: 58px; height: 58px; border-radius: 16px; display: grid; place-items: center; font-size: 30px; font-weight: 900; background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #1b1b1b; box-shadow: 0 6px 20px rgba(255,180,40,.4); }
 .holename { font-size: 17px; font-weight: 700; }
 .holemeta { font-size: 12px; color: var(--dim); letter-spacing: .08em; }
@@ -46,6 +47,12 @@ body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; color: var(-
 .meter .ends { display: flex; justify-content: space-between; margin-top: 6px; }
 
 .score { position: absolute; bottom: 18px; left: 18px; padding: 12px 14px; }
+.scorerow { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.scorerow .cells { margin-top: 0; }
+.scorerow .who { width: 40px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.scorerow .tot { width: 30px; text-align: right; font-size: 15px; }
+.opponent { padding: 12px 16px; min-width: 300px; border-color: rgba(255,59,59,.25); transition: box-shadow .2s; }
+.opponent.on { box-shadow: 0 0 0 2px rgba(255,59,59,.55), 0 10px 40px rgba(0,0,0,.25); }
 .cells { display: flex; gap: 5px; margin-top: 6px; }
 .cell { width: 26px; text-align: center; font-size: 11px; color: var(--dim); }
 .cell .sc { width: 26px; height: 26px; display: grid; place-items: center; font-size: 13px; font-weight: 800; color: var(--ink); margin-top: 2px; border-radius: 6px; background: rgba(255,255,255,.05); }
@@ -68,6 +75,9 @@ kbd { font-family: inherit; font-size: 10px; font-weight: 700; padding: 1px 6px;
 .menu .panel { pointer-events: auto; padding: 36px 40px; max-width: 560px; }
 .title { font-size: 64px; font-weight: 900; line-height: .95; letter-spacing: -.02em; margin: 0; background: linear-gradient(180deg, #fff 30%, #bfe3ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .title span { display: block; font-size: 22px; font-weight: 300; letter-spacing: .5em; color: var(--gold); -webkit-text-fill-color: var(--gold); margin-top: 10px; }
+.difficulties { display: flex; gap: 8px; margin-top: 8px; }
+.diff { pointer-events: auto; font-family: inherit; font-size: 14px; font-weight: 700; padding: 8px 16px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--dim); cursor: pointer; }
+.diff.on { color: #1b1b1b; background: linear-gradient(135deg, #ff8a8a, #ff3b3b); border-color: transparent; box-shadow: 0 6px 20px rgba(255,59,59,.35); }
 .nines { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 28px 0 18px; }
 .nine { text-align: left; padding: 18px; border-radius: 16px; border: 1px solid var(--line); background: rgba(255,255,255,.06); color: var(--ink); cursor: pointer; font-family: inherit; transition: transform .15s, background .15s, box-shadow .15s; }
 .nine:hover { transform: translateY(-3px); background: rgba(255,210,63,.16); box-shadow: 0 10px 30px rgba(255,210,63,.2); border-color: rgba(255,210,63,.6); }

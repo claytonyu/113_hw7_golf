@@ -1,23 +1,29 @@
 /**
- * Round state and hole flow: creating a round, starting each hole, setting up
- * the next shot, and resolving where a finished shot leaves the player
- * (holed, penalty, or next shot). Shot execution lives in shot.ts and the
- * per-frame update in loop.ts.
+ * Round state and hole flow: creating a round, starting each hole, deciding
+ * whose turn it is, setting up the next shot, and resolving where a finished
+ * shot leaves the golfer (holed, penalty, or next shot). Shot execution lives
+ * in shot.ts, the AI's decisions in ai.ts, and the per-frame update in loop.ts.
+ *
+ * Two golfers play every hole: the player (index 0) and the AI opponent
+ * (index 1). They share one shot plan (club, aim, power, shape) and one
+ * simulated ball in flight; `turn` says whose shot it is.
  *
  * The state object `GS` is a plain mutable object. The 3D frame loop mutates
  * it directly; React re-renders by polling it (see ui/play.tsx).
  */
 import { HOLES } from '../course/holes'
 import { buildHole, headingTo, type Hole } from '../course/course'
-import { CLUBS, PUTTER, LIE_CARRY, MAX_STROKES, YD } from '../config'
+import { CLUBS, PUTTER, LIE_CARRY, MAX_STROKES, YD, AI_NAME, AI_SHORT, type Difficulty } from '../config'
 import type { Ball } from '../sim/sim'
 import { sfx } from '../sound'
 
 /**
  * Turn phases:
- * intro (hole flyover) -> plan (aiming) -> swing (meter running) -> flight (ball moving) -> plan ... -> holed.
+ * intro (hole flyover) -> plan (player aiming) -> swing (meter running) -> flight (ball moving)
+ *                      -> ai (opponent lining up) -> flight ...
+ * -> holed (both golfers finished the hole).
  */
-export type Phase = 'intro' | 'plan' | 'swing' | 'flight' | 'holed'
+export type Phase = 'intro' | 'plan' | 'swing' | 'ai' | 'flight' | 'holed'
 
 /** A short-lived spark of sand, grass or water spray. */
 export interface Particle { p: number[]; v: number[]; life: number; max: number; c: [number, number, number] }
@@ -25,32 +31,55 @@ export interface Particle { p: number[]; v: number[]; life: number; max: number;
 /** Big centered text such as "BIRDIE". `at` is the performance.now() time it appeared. */
 export interface Banner { text: string; sub?: string; color: string; at: number }
 
+/** What a golfer intends to hit: the same inputs the player controls. */
+export interface ShotPlan {
+  club: number    // index into CLUBS
+  heading: number // aim direction in radians (see dirOf)
+  power: number   // full swing: fraction of full carry (0-1); putter: intended roll distance in meters
+  curve: number   // -1 (full draw) to 1 (full fade)
+}
+
+/** One golfer's progress through the round. */
+export interface GolferState {
+  name: string
+  isAI: boolean
+  ball: number[]     // current resting position
+  lastPos: number[]  // position before the last shot (penalty replay spot)
+  strokes: number    // strokes on the current hole
+  scores: number[]   // strokes per hole; 0 = not played yet
+  holed: boolean     // finished the current hole (holed out or picked up)
+}
+
+/** The AI's progress on its current shot. The planner runs a little each frame (see ai.ts). */
+export interface AiTurn {
+  elapsed: number                                  // seconds spent lining up
+  planner: Generator<void, ShotPlan, void> | null  // incremental shot search
+  plan: ShotPlan | null                            // the chosen shot, once planning finishes
+}
+
 /** Game state for a nine-hole round. Positions are [x, y, z] in meters. */
-export interface GS {
+export interface GS extends ShotPlan {
   // round and hole
   nine: number            // 0 = front nine, 1 = back nine
   idx: number             // hole index within the nine (0-8)
   hole: Hole
-  scores: number[]        // strokes per hole; 0 = not played yet
-  strokes: number         // strokes taken on the current hole
   phase: Phase
   introT: number          // seconds into the intro flyover
   holedAt: number         // time the hole finished (debounces Space)
 
-  // ball
-  ball: number[]          // current resting position
-  lastPos: number[]       // position before the last shot (penalty replay spot)
+  // golfers and turn order
+  golfers: GolferState[]  // [player, AI]
+  turn: number            // index of the golfer playing now
+  honor: number           // index of the golfer who tees off first on this hole
+  difficulty: Difficulty
+  ai: AiTurn | null
+
+  // the shot in progress (shot plan fields come from ShotPlan)
   shotStart: number[]     // where the in-flight shot was struck from
   sim: Ball | null        // the ball being simulated during flight
   acc: number             // leftover frame time not yet simulated (fixed-step accumulator)
   fast: boolean           // fast-forward the current flight
   lastContacts: number    // ground contacts already handled for sound and particles
-
-  // shot plan
-  club: number            // index into CLUBS
-  heading: number         // aim direction in radians (see dirOf)
-  power: number           // full swing: fraction of full carry (0-1); putter: intended roll distance in meters
-  curve: number           // -1 (full draw) to 1 (full fade)
 
   // swing meter
   meterT: number          // marker position, 0-1; the perfect zone is centered on 0.5
@@ -69,11 +98,28 @@ export interface GS {
   feedback: string        // toast message
   feedbackAt: number
   banner: Banner | null
-  streak: number          // consecutive perfect strikes
+  streak: number          // the player's consecutive perfect strikes
   strikeAt: number        // time of the last strike (drives the golfer animation)
   confettiAt: number
   trail: number[][]       // points the ball has passed through this shot
   fx: Particle[]
+}
+
+/** Index of the player and the AI opponent in `golfers`. */
+export const PLAYER = 0
+export const OPPONENT = 1
+
+/** The golfer whose turn it is. */
+export const active = (g: GS) => g.golfers[g.turn]
+export const player = (g: GS) => g.golfers[PLAYER]
+export const opponent = (g: GS) => g.golfers[OPPONENT]
+
+/** Final (or partial, if quit) scores for the end-of-round screen. */
+export interface RoundResult { nine: number; difficulty: Difficulty; you: number[]; opponent: number[] }
+
+/** Snapshot of both golfers' scores. */
+export function roundResult(g: GS): RoundResult {
+  return { nine: g.nine, difficulty: g.difficulty, you: [...player(g).scores], opponent: [...opponent(g).scores] }
 }
 
 /** Horizontal (x/z) distance from a 3D point to a ground point. */
@@ -95,12 +141,25 @@ const SCORE_NAMES: Record<string, [string, string]> = {
   '2': ['DOUBLE BOGEY', '#ff8a7a'],
 }
 
-/** Creates a fresh round on the chosen nine and starts its first hole. */
-export function newGame(nine: number): GS {
+/** Name and banner color for a hole score, e.g. ['BIRDIE', '#7CFFB2']. */
+export function scoreName(strokes: number, par: number): [string, string] {
+  if (strokes === 1) return ['HOLE IN ONE', '#ff7ae0']
+  const toPar = strokes - par
+  return SCORE_NAMES[toPar] ?? [`+${toPar}`, '#ff8a7a']
+}
+
+/** A golfer at the start of a round. */
+function newGolfer(name: string, isAI: boolean): GolferState {
+  return { name, isAI, ball: [0, 0, 0], lastPos: [0, 0, 0], strokes: 0, scores: Array(9).fill(0), holed: false }
+}
+
+/** Creates a fresh round on the chosen nine against the AI at `difficulty`, and starts its first hole. */
+export function newGame(nine: number, difficulty: Difficulty): GS {
   const g: GS = {
-    nine, idx: 0, hole: buildHole(HOLES[nine * 9]), scores: Array(9).fill(0), strokes: 0, phase: 'intro', introT: 0, holedAt: 0,
-    ball: [0, 0, 0], lastPos: [0, 0, 0], shotStart: [0, 0, 0], sim: null, acc: 0, fast: false, lastContacts: 0,
+    nine, idx: 0, hole: buildHole(HOLES[nine * 9]), phase: 'intro', introT: 0, holedAt: 0,
+    golfers: [newGolfer('You', false), newGolfer(AI_NAME, true)], turn: PLAYER, honor: PLAYER, difficulty, ai: null,
     club: 0, heading: 0, power: 1, curve: 0,
+    shotStart: [0, 0, 0], sim: null, acc: 0, fast: false, lastContacts: 0,
     meterT: 0, meterOn: false,
     contact: null, contactT: 0, final: null,
     cam: 0, overhead: false,
@@ -110,14 +169,31 @@ export function newGame(nine: number): GS {
   return g
 }
 
-/** Loads hole `idx` of the current nine, places the ball on the tee and starts the intro flyover. */
+/**
+ * Tee honors: the golfer with the lower score on the previous hole tees off first.
+ * A tie keeps the previous honor. The player has the honor on the first hole.
+ */
+function updateHonor(g: GS, idx: number) {
+  if (idx === 0) { g.honor = PLAYER; return }
+  const [p, o] = g.golfers.map(golfer => golfer.scores[idx - 1])
+  if (p < o) g.honor = PLAYER
+  else if (o < p) g.honor = OPPONENT
+}
+
+/** Loads hole `idx` of the current nine, places both golfers on the tee and starts the intro flyover. */
 export function startHole(g: GS, idx: number) {
+  updateHonor(g, idx)
   g.idx = idx
   g.hole = buildHole(HOLES[g.nine * 9 + idx])
   const h = g.hole
-  g.ball = [0, h.height(0, 0), 0]
-  g.lastPos = [...g.ball]
-  g.strokes = 0
+  for (const golfer of g.golfers) {
+    golfer.ball = [0, h.height(0, 0), 0]
+    golfer.lastPos = [...golfer.ball]
+    golfer.strokes = 0
+    golfer.holed = false
+  }
+  g.turn = g.honor
+  g.ai = null
   g.sim = null
   g.trail = []
   g.phase = 'intro'
@@ -126,6 +202,17 @@ export function startHole(g: GS, idx: number) {
   setFeedback(g, h.def.name)
   showBanner(g, `HOLE ${h.def.num}`, '#ffffff', `PAR ${h.def.par} · ${h.def.yards} YDS`)
   prepShot(g)
+}
+
+/** Hands control to the golfer whose turn it is: the player plans, the AI lines up. */
+export function beginTurn(g: GS) {
+  if (active(g).isAI) {
+    g.phase = 'ai'
+    g.ai = { elapsed: 0, planner: null, plan: null }
+  } else {
+    g.phase = 'plan'
+    g.ai = null
+  }
 }
 
 /** Shows a toast message. */
@@ -139,38 +226,43 @@ export function showBanner(g: GS, text: string, color: string, sub?: string) {
   g.banner = { text, sub, color, at: performance.now() }
 }
 
-/** Sets default aim, club and power for the next shot from the ball's position and lie. */
+/** Prefixes a message with the golfer's name when it is about the AI. */
+const about = (golfer: GolferState, msg: string) => (golfer.isAI ? `${AI_SHORT}: ${msg}` : msg)
+
+/** Sets default aim, club and power for the active golfer's next shot from their ball's position and lie. */
 export function prepShot(g: GS) {
   const h = g.hole
-  const d = distXZ(g.ball, h.pin[0], h.pin[1])
+  const golfer = active(g)
+  const d = distXZ(golfer.ball, h.pin[0], h.pin[1])
 
-  g.heading = headingTo(g.ball, h.pin[0], h.pin[1])
-  if (d > AIM_DOWN_LEG_DIST && g.strokes === 0) {
+  g.heading = headingTo(golfer.ball, h.pin[0], h.pin[1])
+  if (d > AIM_DOWN_LEG_DIST && golfer.strokes === 0) {
     const corner = h.path[1]
-    g.heading = headingTo(g.ball, corner[0], corner[1])
+    g.heading = headingTo(golfer.ball, corner[0], corner[1])
   }
 
-  const lie = h.lie(g.ball[0], g.ball[2])
+  const lie = h.lie(golfer.ball[0], golfer.ball[2])
   if (lie === 'green') {
     g.club = PUTTER
     g.power = d
     g.curve = 0
     return
   }
-  pickClub(g, d / YD / (LIE_CARRY[lie] ?? 1))
+  const { club, power } = clubFor(d / YD / (LIE_CARRY[lie] ?? 1))
+  g.club = club
+  g.power = power
 }
 
 /**
  * Chooses the shortest club whose full carry still covers `yards` (allowing 3% short),
- * falling back to the driver, and sets power to the needed fraction.
+ * falling back to the driver, and the power fraction needed.
  */
-function pickClub(g: GS, yards: number) {
-  let c = 0
+export function clubFor(yards: number) {
+  let club = 0
   for (let i = 0; i < PUTTER; i++) {
-    if (CLUBS[i].carry >= yards * 0.97) c = i // clubs go longest to shortest, so the last match is the shortest
+    if (CLUBS[i].carry >= yards * 0.97) club = i // clubs go longest to shortest, so the last match is the shortest
   }
-  g.club = c
-  g.power = Math.min(1, yards / CLUBS[c].carry)
+  return { club, power: Math.min(1, yards / CLUBS[club].carry) }
 }
 
 /** Formats a remaining distance in yards, switching to feet inside 30 yards. */
@@ -178,68 +270,95 @@ function formatRemaining(yds: number) {
   return yds < 30 ? `${(yds * 3).toFixed(0)} ft` : `${yds.toFixed(0)} yds`
 }
 
-/** Called when the simulated ball stops. Scores the hole, applies a penalty, or sets up the next shot. */
+/** Called when the simulated ball stops. Scores, penalizes or settles the shot, then passes the turn. */
 export function finishShot(g: GS) {
   const b = g.sim!
-  if (b.mode === 'holed') { finishHole(g, b); return }
-
-  if (b.mode === 'water' || b.mode === 'oob') applyPenalty(g, b.mode)
-  else settleBall(g, b)
+  const golfer = active(g)
+  if (b.mode === 'holed') holeOut(g, golfer, b)
+  else if (b.mode === 'water' || b.mode === 'oob') applyPenalty(g, golfer, b.mode)
+  else settleBall(g, golfer, b)
 
   g.sim = null
-  g.phase = 'plan'
-  if (g.strokes >= MAX_STROKES) { pickUp(g); return }
-  prepShot(g)
+  if (!golfer.holed && golfer.strokes >= MAX_STROKES) pickUp(g, golfer)
+  nextTurn(g)
 }
 
-/** Ball dropped: records the score and plays the matching banner, sound and confetti. */
-function finishHole(g: GS, b: Ball) {
+/**
+ * Picks who plays next: the golfer still playing who is farthest from the pin
+ * (ties go to the golfer with the honor). Ends the hole when both are done.
+ */
+function nextTurn(g: GS) {
   const h = g.hole
-  g.phase = 'holed'
-  g.ball = [...b.p]
-  g.scores[g.idx] = g.strokes
+  const remaining = g.golfers.map((golfer, i) => ({ i, golfer })).filter(x => !x.golfer.holed)
+  if (remaining.length === 0) { completeHole(g); return }
 
-  const toPar = g.strokes - h.def.par
-  const holeInOne = g.strokes === 1
-  const [name, color] = holeInOne ? ['HOLE IN ONE', '#ff7ae0'] : SCORE_NAMES[toPar] ?? [`+${toPar}`, '#ff8a7a']
-  showBanner(g, name, color, `${g.strokes} strokes · Space for next hole`)
-  setFeedback(g, 'In the cup!')
+  const dist = (x: { golfer: GolferState }) => distXZ(x.golfer.ball, h.pin[0], h.pin[1])
+  remaining.sort((a, b) => dist(b) - dist(a) || (a.i === g.honor ? -1 : b.i === g.honor ? 1 : 0))
+  g.turn = remaining[0].i
+  prepShot(g)
+  beginTurn(g)
+}
+
+/** Ball dropped: records the score, with banner, sound and confetti for the player and a toast for the AI. */
+function holeOut(g: GS, golfer: GolferState, b: Ball) {
+  const par = g.hole.def.par
+  golfer.ball = [...b.p]
+  golfer.holed = true
+  golfer.scores[g.idx] = golfer.strokes
+  const [name, color] = scoreName(golfer.strokes, par)
   sfx.cup()
 
-  if (toPar < 0 || holeInOne) {
-    sfx.cheer(toPar <= -2 || holeInOne)
+  if (golfer.isAI) {
+    setFeedback(g, `${AI_NAME} holes out · ${name.toLowerCase()} (${golfer.strokes})`)
+    return
+  }
+  showBanner(g, name, color, `${golfer.strokes} strokes`)
+  setFeedback(g, 'In the cup!')
+  const toPar = golfer.strokes - par
+  if (toPar < 0 || golfer.strokes === 1) {
+    sfx.cheer(toPar <= -2 || golfer.strokes === 1)
     g.confettiAt = performance.now()
   } else if (toPar >= 2) {
     sfx.groan()
   }
-  g.sim = null
+}
+
+/** Both golfers are done: shows the player's result and both scores until Space is pressed. */
+function completeHole(g: GS) {
+  const p = player(g), o = opponent(g)
+  const [name, color] = scoreName(p.scores[g.idx], g.hole.def.par)
+  g.phase = 'holed'
+  g.ai = null
+  showBanner(g, name, color, `You ${p.scores[g.idx]} · ${AI_SHORT} ${o.scores[g.idx]} · Space for next hole`)
   g.holedAt = performance.now()
 }
 
 /** Water or out of bounds: one penalty stroke and replay from the previous spot (stroke and distance). */
-function applyPenalty(g: GS, mode: 'water' | 'oob') {
-  g.strokes++
-  g.ball = [...g.lastPos]
-  showBanner(g, mode === 'water' ? 'SPLASH' : 'OUT OF BOUNDS', '#8fd3ff', '+1 stroke · replay from previous spot')
-  setFeedback(g, 'Penalty stroke')
+function applyPenalty(g: GS, golfer: GolferState, mode: 'water' | 'oob') {
+  golfer.strokes++
+  golfer.ball = [...golfer.lastPos]
+  const sub = '+1 stroke · replay from previous spot'
+  showBanner(g, mode === 'water' ? 'SPLASH' : 'OUT OF BOUNDS', '#8fd3ff', golfer.isAI ? `${AI_SHORT} · ${sub}` : sub)
+  setFeedback(g, about(golfer, 'Penalty stroke'))
   if (mode === 'oob') sfx.groan()
 }
 
 /** Ball came to rest in play: moves it there and reports the shot distance, distance left and lie. */
-function settleBall(g: GS, b: Ball) {
+function settleBall(g: GS, golfer: GolferState, b: Ball) {
   const h = g.hole
   const carried = distXZ(g.shotStart, b.p[0], b.p[2]) / YD
-  g.ball = [...b.p]
-  const rem = distXZ(g.ball, h.pin[0], h.pin[1]) / YD
-  const lie = h.lie(g.ball[0], g.ball[2])
-  setFeedback(g, `${carried.toFixed(0)} yds · ${formatRemaining(rem)} left · ${lie === 'green' ? 'on the green' : 'in the ' + lie}`)
-  if (lie === 'green' && rem < 3 && h.def.par - g.strokes >= 2) showBanner(g, 'TAP-IN EAGLE LOOK', '#ffd23f')
+  golfer.ball = [...b.p]
+  const rem = distXZ(golfer.ball, h.pin[0], h.pin[1]) / YD
+  const lie = h.lie(golfer.ball[0], golfer.ball[2])
+  const where = lie === 'green' ? 'on the green' : 'in the ' + lie
+  setFeedback(g, about(golfer, `${carried.toFixed(0)} yds · ${formatRemaining(rem)} left · ${where}`))
+  if (!golfer.isAI && lie === 'green' && rem < 3 && h.def.par - golfer.strokes >= 2) showBanner(g, 'TAP-IN EAGLE LOOK', '#ffd23f')
 }
 
-/** Hit the stroke limit: records the score and ends the hole. */
-function pickUp(g: GS) {
-  g.scores[g.idx] = g.strokes
-  g.phase = 'holed'
-  showBanner(g, 'PICKED UP', '#ffb36b', 'Space for next hole')
-  g.holedAt = performance.now()
+/** Hit the stroke limit: records the score and ends the golfer's hole. */
+function pickUp(g: GS, golfer: GolferState) {
+  golfer.scores[g.idx] = golfer.strokes
+  golfer.holed = true
+  if (golfer.isAI) setFeedback(g, `${AI_NAME} picks up`)
+  else showBanner(g, 'PICKED UP', '#ffb36b')
 }

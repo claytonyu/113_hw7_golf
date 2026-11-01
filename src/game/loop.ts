@@ -1,14 +1,16 @@
 /**
  * Per-frame game update, called from the 3D render loop: advances the intro
- * timer, the swing meter, and the ball simulation.
+ * timer, the swing meter, the AI's turn, and the ball simulation. Also holds
+ * the "skip" action that finishes the AI's current shot instantly.
  */
 import { PUTTER, METER } from '../config'
-import { step, DT } from '../sim/sim'
-import { finishShot, INTRO, type GS } from './game'
+import { step, simulateToRest, isMoving, DT } from '../sim/sim'
+import { active, beginTurn, finishShot, INTRO, type GS } from './game'
 import { strike } from './shot'
+import { advanceAiTurn } from './ai'
 import { onContact } from './effects'
 
-/** Fast-forward speed multiplier while Space is pressed during flight. */
+/** Fast-forward speed multiplier while Space is pressed during the player's flight. */
 const FAST_FORWARD = 5
 
 /** At most this many physics steps per frame, so a long frame can't freeze the game. */
@@ -18,13 +20,14 @@ const MAX_STEPS_PER_FRAME = 200
 export function advanceGame(g: GS, dt: number) {
   if (g.phase === 'intro') advanceIntro(g, dt)
   if (g.phase === 'swing' && g.meterOn) advanceMeter(g, dt)
+  if (g.phase === 'ai' && g.ai) advanceAiTurn(g, dt)
   if (g.phase === 'flight' && g.sim) advanceFlight(g, dt)
 }
 
-/** Ends the intro flyover once it has run its full length. */
+/** Ends the intro flyover once it has run its full length, and starts the first turn. */
 function advanceIntro(g: GS, dt: number) {
   g.introT += dt
-  if (g.introT >= INTRO) g.phase = 'plan'
+  if (g.introT >= INTRO) beginTurn(g)
 }
 
 /** Moves the swing-meter marker. If it reaches the end, the shot is struck as maximally late. */
@@ -33,8 +36,6 @@ function advanceMeter(g: GS, dt: number) {
   g.meterT += dt / period
   if (g.meterT >= 1) strike(g, 1)
 }
-
-const isMoving = (mode: string) => mode === 'air' || mode === 'roll'
 
 /**
  * Runs as many fixed physics steps as the elapsed time allows (accumulator
@@ -53,8 +54,21 @@ function advanceFlight(g: GS, dt: number) {
       g.lastContacts = ball.contacts
       onContact(g, ball)
     }
-    if (n % 2 === 0 && isMoving(ball.mode)) g.trail.push([...ball.p])
-    if (!isMoving(ball.mode)) break
+    if (n % 2 === 0 && isMoving(ball)) g.trail.push([...ball.p])
+    if (!isMoving(ball)) break
   }
-  if (!isMoving(ball.mode)) finishShot(g)
+  if (!isMoving(ball)) finishShot(g)
+}
+
+/**
+ * Skips the AI's current shot: finishes its planning and swing, then runs the
+ * ball to rest instantly. The same fixed steps run as in the animated version,
+ * so the result is identical.
+ */
+export function skipAiShot(g: GS) {
+  if (g.phase === 'ai' && g.ai) advanceAiTurn(g, 0, true)
+  if (g.phase === 'flight' && g.sim && active(g).isAI) {
+    simulateToRest(g.sim, g.hole, g.hole.wind, undefined, Infinity)
+    finishShot(g)
+  }
 }

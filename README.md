@@ -6,7 +6,9 @@ trajectory preview + landing ring + dispersion, two-press swing meter, shared fi
 (wind, curve, bounce, roll, slopes, lies, sand/rough penalties), putting with slope grid + cup capture,
 water/OOB penalties (stroke and distance), scoring, scorecard.
 
-Not yet: Tiger AI opponent, pro shop/currency, consumables (1/2/3), localStorage save/resume, records, sound.
+Also done: Tiger Woods AI opponent (unofficial, game-simulated; Amateur/Pro/Tiger, tuned in src/config.ts AI_LEVELS).
+
+Not yet: pro shop/currency, consumables (1/2/3), localStorage save/resume, records.
 Course is a stylized, approximate recreation — not survey-accurate.
 
 

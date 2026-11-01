@@ -48,6 +48,20 @@ export interface Ball {
   spin0: number     // backspin at launch
 }
 
+/** True while the ball is still in the air or rolling. */
+export const isMoving = (b: Ball) => b.mode === 'air' || b.mode === 'roll'
+
+/**
+ * Steps `b` until it stops (or `maxSteps` runs out), using the same fixed
+ * steps as live play. `onContact` is called at the first ground contact.
+ */
+export function simulateToRest(b: Ball, hole: Hole, wind: number[], onContact?: (b: Ball) => void, maxSteps = 8000) {
+  for (let i = 0; i < maxSteps && isMoving(b); i++) {
+    if (step(b, hole, wind) && onContact) onContact(b)
+  }
+  return b
+}
+
 /** Copies a ball so it can be simulated ahead without touching the original. */
 export function cloneBall(b: Ball): Ball {
   return { ...b, p: [...b.p], v: [...b.v] }

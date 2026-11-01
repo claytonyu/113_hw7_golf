@@ -1,17 +1,18 @@
 /**
- * Shot execution: turning the player's plan (club, aim, power, shape) plus the
+ * Shot execution: turning a shot plan (club, aim, power, shape) plus the
  * swing-meter timing into launch parameters, previewing the shot, and striking it.
- * The preview and the real strike both go through shotParams() and the same
- * simulation, so a perfect strike reproduces the preview exactly.
+ * The preview, the AI's planning and the real strike all go through
+ * computeShot() and the same simulation, so a perfect strike reproduces the
+ * preview exactly and the AI plays by the same physics as the player.
  */
 import * as THREE from 'three'
-import { dirOf, type Lie } from '../course/course'
+import { dirOf, type Hole, type Lie } from '../course/course'
 import {
   CLUBS, PUTTER, FIRST_WEDGE, LIE_CARRY, LIE_ZONE, LIE_AIM_ERROR, LIE_SPIN, WEDGE_SAND_CARRY, METER, YD,
 } from '../config'
-import { launch, step, cloneBall, type Ball } from '../sim/sim'
+import { launch, step, cloneBall, simulateToRest, type Ball } from '../sim/sim'
 import { speedForCarry, speedForPutt } from '../sim/calibrate'
-import { setFeedback, showBanner, type GS } from './game'
+import { active, setFeedback, showBanner, type GS, type ShotPlan } from './game'
 import { sfx } from '../sound'
 
 /** Launch parameters for a shot, plus the perfect-zone width and lie used to compute them. */
@@ -26,33 +27,43 @@ export interface ShotParams {
 }
 
 /** Half-width of the perfect zone: smaller from bad lies and with stronger draw/fade. */
-function perfectZone(g: GS, lie: Lie) {
-  return METER.zone * (LIE_ZONE[lie] ?? 1) * (1 - Math.abs(g.curve) * METER.shapePenalty)
+export function perfectZone(curve: number, lie: Lie) {
+  return METER.zone * (LIE_ZONE[lie] ?? 1) * (1 - Math.abs(curve) * METER.shapePenalty)
 }
 
 /**
- * Computes the shot's launch parameters. `timingErr` is the meter position minus
- * 0.5 (negative = early). Only the error beyond the perfect zone counts: it pulls
- * the shot left (early) or pushes it right (late) and costs distance.
+ * Computes launch parameters for `plan` played from `ball`. `timingErr` is the
+ * meter position minus 0.5 (negative = early). Only the error beyond the perfect
+ * zone counts: it pulls the shot left (early) or pushes it right (late) and costs distance.
  */
-export function shotParams(g: GS, timingErr = 0): ShotParams {
-  const lie = g.hole.lie(g.ball[0], g.ball[2])
-  const club = CLUBS[g.club]
-  const zone = perfectZone(g, lie)
-  const isPutt = g.club === PUTTER
+export function computeShot(hole: Hole, ball: number[], plan: ShotPlan, timingErr = 0): ShotParams {
+  const lie = hole.lie(ball[0], ball[2])
+  const club = CLUBS[plan.club]
+  const zone = perfectZone(plan.curve, lie)
+  const isPutt = plan.club === PUTTER
 
   const miss = Math.max(0, Math.abs(timingErr) - zone)
   const aimScale = (isPutt ? METER.putterAim : 1) * (LIE_AIM_ERROR[lie] ?? 1)
   const angErr = Math.sign(timingErr) * miss * METER.errDeg * Math.PI / 180 * aimScale
   const distMul = 1 - miss * METER.distLoss
-  const heading = g.heading + angErr // negative error turns left
+  const heading = plan.heading + angErr // negative error turns left
 
-  if (isPutt) return { heading, speed: speedForPutt(g.power * distMul), launch: 0, curve: 0, spin: 0, zone, lie }
+  if (isPutt) return { heading, speed: speedForPutt(plan.power * distMul), launch: 0, curve: 0, spin: 0, zone, lie }
 
-  const lieMul = lie === 'sand' && g.club >= FIRST_WEDGE ? WEDGE_SAND_CARRY : LIE_CARRY[lie] ?? 1
-  const carry = club.carry * YD * g.power * lieMul * distMul
+  const lieMul = lie === 'sand' && plan.club >= FIRST_WEDGE ? WEDGE_SAND_CARRY : LIE_CARRY[lie] ?? 1
+  const carry = club.carry * YD * plan.power * lieMul * distMul
   const spin = club.spin * (LIE_SPIN[lie] ?? 1)
-  return { heading, speed: speedForCarry(carry, club.launch, spin), launch: club.launch, curve: g.curve, spin, zone, lie }
+  return { heading, speed: speedForCarry(carry, club.launch, spin), launch: club.launch, curve: plan.curve, spin, zone, lie }
+}
+
+/** Launch parameters for the active golfer's current plan. */
+export function shotParams(g: GS, timingErr = 0): ShotParams {
+  return computeShot(g.hole, active(g).ball, g, timingErr)
+}
+
+/** A ball launched from `from` with the given parameters. */
+export function launchShot(from: number[], s: ShotParams): Ball {
+  return launch(from, s.heading, s.speed, s.launch, s.curve, s.spin)
 }
 
 /** Preview geometry: line points, first-contact point (null for putts), and the params used. */
@@ -64,9 +75,10 @@ export interface Preview { pts: THREE.Vector3[]; land: number[] | null; s: ShotP
  * ground, so the player still has to read the break.
  */
 export function preview(g: GS): Preview {
+  const ball = active(g).ball
   const s = shotParams(g)
-  const b = launch(g.ball, s.heading, s.speed, s.launch, s.curve, s.spin)
-  if (g.club === PUTTER) return { pts: puttAimLine(g, s.heading, b), land: null, s }
+  const b = launchShot(ball, s)
+  if (g.club === PUTTER) return { pts: puttAimLine(g, ball, s.heading, b), land: null, s }
   const pts = flightLine(g, b)
   return { pts, land: [...b.p], s }
 }
@@ -82,13 +94,13 @@ export function dispersionSize(club: number, lie: Lie): [number, number] {
 }
 
 /** Short straight line hugging the green in the aim direction (at most 5 m). */
-function puttAimLine(g: GS, heading: number, b: Ball): THREE.Vector3[] {
+function puttAimLine(g: GS, ball: number[], heading: number, b: Ball): THREE.Vector3[] {
   const pts = [new THREE.Vector3(...b.p)]
   const [dx, dz] = dirOf(heading)
   const len = Math.min(g.power * 0.5, 5)
   for (let i = 0; i <= 10; i++) {
-    const x = g.ball[0] + dx * len * i / 10
-    const z = g.ball[2] + dz * len * i / 10
+    const x = ball[0] + dx * len * i / 10
+    const z = ball[2] + dz * len * i / 10
     pts.push(new THREE.Vector3(x, g.hole.height(x, z) + 0.04, z))
   }
   return pts
@@ -114,29 +126,34 @@ function timingLabel(err: number, perfect: boolean) {
   return way ? 'Way late — pushed right' : 'Late — a touch right'
 }
 
-/** Strikes the ball with the meter stopped at `t` (0-1) and starts the flight phase. */
+/** Strikes the active golfer's ball with the meter stopped at `t` (0-1) and starts the flight phase. */
 export function strike(g: GS, t: number) {
+  const golfer = active(g)
   const err = t - 0.5
   const s = shotParams(g, err)
   const perfect = Math.abs(err) <= s.zone
 
-  setFeedback(g, timingLabel(err, perfect))
   g.meterOn = false
-  if (perfect) {
-    g.streak++
-    showBanner(g, g.streak > 1 ? `PERFECT ×${g.streak}` : 'PERFECT', '#7CFFB2')
+  if (golfer.isAI) {
+    setFeedback(g, `${golfer.name}: ${timingLabel(err, perfect)}`)
   } else {
-    g.streak = 0
+    setFeedback(g, timingLabel(err, perfect))
+    if (perfect) {
+      g.streak++
+      showBanner(g, g.streak > 1 ? `PERFECT ×${g.streak}` : 'PERFECT', '#7CFFB2')
+    } else {
+      g.streak = 0
+    }
   }
 
-  g.lastPos = [...g.ball]
-  g.shotStart = [...g.ball]
-  g.strokes++
+  golfer.lastPos = [...golfer.ball]
+  g.shotStart = [...golfer.ball]
+  golfer.strokes++
   g.strikeAt = performance.now()
-  g.sim = launch(g.ball, s.heading, s.speed, s.launch, s.curve, s.spin)
+  g.sim = launchShot(golfer.ball, s)
   g.acc = 0
   g.phase = 'flight'
-  g.trail = [[...g.ball]]
+  g.trail = [[...golfer.ball]]
   g.fast = false
   g.lastContacts = 0
 
@@ -147,15 +164,13 @@ export function strike(g: GS, t: number) {
 
 /** Simulates a copy of the shot to completion so the TV camera knows where and when the ball lands. */
 function predictOutcome(g: GS) {
-  const c = cloneBall(g.sim!)
   g.contact = null
   g.final = null
-  for (let i = 0; i < 8000 && (c.mode === 'air' || c.mode === 'roll'); i++) {
-    const contact = step(c, g.hole, g.hole.wind)
-    if (contact && !g.contact) {
-      g.contact = [...c.p]
-      g.contactT = c.t
+  const c = simulateToRest(cloneBall(g.sim!), g.hole, g.hole.wind, b => {
+    if (!g.contact) {
+      g.contact = [...b.p]
+      g.contactT = b.t
     }
-  }
+  })
   g.final = [...c.p]
 }

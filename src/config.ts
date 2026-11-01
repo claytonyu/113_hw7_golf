@@ -65,6 +65,88 @@ export const METER = {
 /** Strokes after which the player picks up and moves to the next hole. */
 export const MAX_STROKES = 10
 
+// ---------- AI opponent ----------
+
+/** Display names for the unofficial, game-simulated opponent. */
+export const AI_NAME = 'Tiger Woods'
+export const AI_SHORT = 'Tiger'
+export const AI_LABEL = 'Tiger Woods — AI opponent'
+
+export type Difficulty = 'amateur' | 'pro' | 'tiger'
+export const DIFFICULTIES: Difficulty[] = ['amateur', 'pro', 'tiger']
+export const DEFAULT_DIFFICULTY: Difficulty = 'pro'
+
+/**
+ * How well the AI plans and executes at each difficulty.
+ * Planning: which shots it considers and how well it reads the wind and its own misses.
+ * Execution: random timing error on the same swing meter the player uses, plus rare big mistakes.
+ */
+export interface AiLevel {
+  label: string
+  // planning
+  aimOffsets: number[]   // aim directions tried, in radians either side of each target line
+  carryFractions: number[] // carries tried, as fractions of the distance to the pin (shorter ones allow for rollout)
+  layups: number[]       // extra carries tried, as fractions of the longest club's carry (0 = never lays up)
+  shapes: number[]       // draw/fade values tried
+  windRead: number       // fraction of the real wind the AI plans for (1 = perfect read)
+  riskChecks: number     // best candidates re-scored against the AI's own miss pattern (0 = ignores risk)
+  // execution
+  timingSigma: number    // standard deviation of swing timing error (perfect zone half-width is METER.zone)
+  mistakeChance: number  // chance per shot of a badly mistimed swing
+  mistakeSize: [number, number] // timing error range of a mistake
+  puttAimSigma: number   // green-reading error in radians
+  puttPaceSigma: number  // putt pace error as a fraction of the intended distance
+  thinkTime: number      // minimum seconds spent "lining up" before each shot
+}
+
+export const AI_LEVELS: Record<Difficulty, AiLevel> = {
+  amateur: {
+    label: 'Amateur',
+    aimOffsets: [-0.06, 0, 0.06],
+    carryFractions: [1],
+    layups: [],
+    shapes: [0],
+    windRead: 0.4,
+    riskChecks: 0,
+    timingSigma: 0.08,
+    mistakeChance: 0.12,
+    mistakeSize: [0.15, 0.3],
+    puttAimSigma: 0.05,
+    puttPaceSigma: 0.2,
+    thinkTime: 1.4,
+  },
+  pro: {
+    label: 'Pro',
+    aimOffsets: [-0.12, -0.08, -0.04, 0, 0.04, 0.08, 0.12],
+    carryFractions: [1, 0.9, 0.8],
+    layups: [0.9, 0.75],
+    shapes: [0],
+    windRead: 0.8,
+    riskChecks: 5,
+    timingSigma: 0.06,
+    mistakeChance: 0.08,
+    mistakeSize: [0.12, 0.22],
+    puttAimSigma: 0.035,
+    puttPaceSigma: 0.15,
+    thinkTime: 1.2,
+  },
+  tiger: {
+    label: 'Tiger',
+    aimOffsets: [-0.16, -0.12, -0.08, -0.04, 0, 0.04, 0.08, 0.12, 0.16],
+    carryFractions: [1, 0.93, 0.86, 0.78],
+    layups: [0.95, 0.85, 0.7],
+    shapes: [-0.5, 0, 0.5],
+    windRead: 0.95,
+    riskChecks: 10,
+    timingSigma: 0.038,
+    mistakeChance: 0.04,
+    mistakeSize: [0.1, 0.2],
+    puttAimSigma: 0.018,
+    puttPaceSigma: 0.085,
+    thinkTime: 1.0,
+  },
+}
+
 /** Keyboard step sizes for shot planning (applied once per keydown, including key repeats). */
 export const CONTROLS = {
   aimStep: 0.012,     // radians per A/D press

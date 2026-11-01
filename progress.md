@@ -12,9 +12,9 @@
 - HUD: hole info, wind compass, minimap, club carousel, banners, confetti
 - Cameras: hole flyover, behind-ball, TV landing cam, overhead (Tab), cup orbit
 - Sound effects (synthesized)
+- Tiger Woods AI opponent (Amateur / Pro / Tiger, default Pro): plays real simulated shots, tee honors then farther-first, skippable shots, opponent panel, two-row scorecard, head-to-head end screen; difficulty saved in localStorage
 
 ## To do
-- Tiger Woods AI opponent (Amateur / Pro / Tiger difficulty)
 - Save and resume rounds (localStorage)
 - Pro shop, currency, rewards
 - Consumables (Power Boost, Slow Tempo, Steady Hands on keys 1/2/3)

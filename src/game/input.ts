@@ -1,11 +1,12 @@
 /**
  * Keyboard controls during a round. Translates keydown events into changes to
- * the game state. Planning keys only work in the 'plan' phase, so the shot is
- * locked during the swing and ball flight.
+ * the game state. Planning keys only work in the 'plan' phase (the player's
+ * turn), so the shot is locked during the swing, ball flight and the AI's turn.
  */
 import { PUTTER, CONTROLS } from '../config'
-import { distXZ, startHole, type GS } from './game'
+import { active, beginTurn, distXZ, roundResult, startHole, type GS, type RoundResult } from './game'
 import { strike } from './shot'
+import { skipAiShot } from './loop'
 import { sfx, unlockAudio } from '../sound'
 
 /** Keys whose browser default (scrolling, focus change) is suppressed during play. */
@@ -18,7 +19,7 @@ const HOLED_DEBOUNCE = 700
 export interface KeyActions {
   refresh(): void               // re-render the UI after a state change
   togglePause(): void
-  finishRound(scores: number[]): void
+  finishRound(result: RoundResult): void
 }
 
 /** Handles one keydown event during play. */
@@ -46,16 +47,19 @@ export function handleKeyDown(g: GS, e: KeyboardEvent, actions: KeyActions) {
   actions.refresh()
 }
 
-/** Space does something different in each phase: skip intro, next hole, start swing, strike, fast-forward. */
+/**
+ * Space does something different in each phase: skip intro, next hole, start swing,
+ * strike, fast-forward the player's ball, or skip the AI's shot.
+ */
 function handleSpace(g: GS, actions: KeyActions) {
   switch (g.phase) {
     case 'intro':
-      g.phase = 'plan'
+      beginTurn(g)
       actions.refresh()
       return
     case 'holed':
       if (performance.now() - g.holedAt <= HOLED_DEBOUNCE) return
-      if (g.idx >= 8) actions.finishRound(g.scores)
+      if (g.idx >= 8) actions.finishRound(roundResult(g))
       else startHole(g, g.idx + 1)
       actions.refresh()
       return
@@ -70,8 +74,13 @@ function handleSpace(g: GS, actions: KeyActions) {
     case 'swing':
       if (g.meterOn) { strike(g, g.meterT); actions.refresh() }
       return
+    case 'ai':
+      skipAiShot(g)
+      actions.refresh()
+      return
     case 'flight':
-      g.fast = true
+      if (active(g).isAI) { skipAiShot(g); actions.refresh() }
+      else g.fast = true
       return
   }
 }
@@ -121,13 +130,14 @@ const roundCurve = (c: number) => +c.toFixed(2)
 
 /** Moves one club longer (-1) or shorter (+1). Disabled on the green, where the putter is forced. */
 function changeClub(g: GS, dir: -1 | 1) {
-  const onGreen = g.hole.lie(g.ball[0], g.ball[2]) === 'green'
+  const ball = active(g).ball
+  const onGreen = g.hole.lie(ball[0], ball[2]) === 'green'
   if (onGreen) return
   g.club = Math.max(0, Math.min(PUTTER, g.club + dir))
   sfx.click()
   if (g.club === PUTTER) {
     // Switching to the putter: power becomes the distance to the pin, and shaping is disabled.
-    g.power = distXZ(g.ball, g.hole.pin[0], g.hole.pin[1])
+    g.power = distXZ(ball, g.hole.pin[0], g.hole.pin[1])
     g.curve = 0
   } else if (g.power > 1) {
     g.power = 1 // coming back from the putter, where power was in meters

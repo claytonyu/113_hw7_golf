@@ -4,7 +4,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { newGame, type GS } from '../game/game'
+import { active, newGame, roundResult, type GS, type RoundResult } from '../game/game'
+import type { Difficulty } from '../config'
 import { preview } from '../game/shot'
 import { handleKeyDown } from '../game/input'
 import { World } from '../render/world'
@@ -14,11 +15,11 @@ import { PauseOverlay } from './screens'
 /** How often (ms) the shot preview is refreshed while not in flight. */
 const PREVIEW_REFRESH_MS = 200
 
-/** Plays a nine-hole round; calls `onExit` with the scores when it ends or the player quits. */
-export function Play({ nine, onExit }: { nine: number; onExit: (scores: number[]) => void }) {
+/** Plays a nine-hole round against the AI; calls `onExit` with both golfers' scores when it ends or the player quits. */
+export function Play({ nine, difficulty, onExit }: { nine: number; difficulty: Difficulty; onExit: (result: RoundResult) => void }) {
   // The game state is created once and mutated in place; React never copies it.
   const g = useRef<GS | null>(null)
-  if (!g.current) g.current = newGame(nine)
+  if (!g.current) g.current = newGame(nine, difficulty)
   const gs = g.current
 
   // `ver` is bumped to force a re-render (and a fresh preview) after the state changes.
@@ -28,7 +29,7 @@ export function Play({ nine, onExit }: { nine: number; onExit: (scores: number[]
 
   const pv = useMemo(
     () => (gs.phase === 'plan' || gs.phase === 'swing' ? preview(gs) : null),
-    [ver, gs.phase, gs.idx, gs.ball[0], gs.ball[2], gs.club],
+    [ver, gs.phase, gs.idx, gs.turn, active(gs).ball[0], active(gs).ball[2], gs.club],
   )
 
   // Periodic refresh catches state changes made by the frame loop (e.g. intro ending).
@@ -53,6 +54,6 @@ export function Play({ nine, onExit }: { nine: number; onExit: (scores: number[]
       <World g={gs} pv={pv} />
     </Canvas>
     <Hud g={gs} />
-    {paused && <PauseOverlay onQuit={() => onExit(gs.scores)} />}
+    {paused && <PauseOverlay onQuit={() => onExit(roundResult(gs))} />}
   </div>
 }

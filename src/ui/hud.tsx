@@ -1,14 +1,15 @@
 /**
- * Heads-up display drawn over the 3D view: hole card, wind, minimap, shot
- * settings, swing meter, scorecard strip, key reminder, banners and confetti.
+ * Heads-up display drawn over the 3D view: hole card, AI opponent panel, wind,
+ * minimap, shot settings, swing meter, scorecard for both golfers, key
+ * reminder, banners and confetti.
  *
  * The HUD re-renders every animation frame and reads the mutable game state
  * directly, so it always reflects the latest values without extra plumbing.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { nineHoles } from '../course/holes'
-import { CLUBS, PUTTER, LIE_CARRY, YD } from '../config'
-import { distXZ, type GS } from '../game/game'
+import { AI_LABEL, AI_LEVELS, AI_SHORT, CLUBS, PUTTER, LIE_CARRY, YD } from '../config'
+import { distXZ, opponent, player, OPPONENT, PLAYER, type GS, type GolferState } from '../game/game'
 import { shotParams } from '../game/shot'
 import { useMinimap } from './minimap'
 
@@ -34,13 +35,23 @@ function useEveryFrame() {
   }, [])
 }
 
-/** Values derived from the game state that several HUD panels share. */
+/** Formats a distance in yards, switching to feet inside 30 yards: [value, unit]. */
+const yardsOrFeet = (yds: number): [string, string] => (yds < 30 ? [(yds * 3).toFixed(0), 'ft'] : [yds.toFixed(0), 'yds'])
+
+/** Golfer `i`'s ball: the simulated ball while it is their shot in flight, otherwise where it rests. */
+const ballOf = (g: GS, i: number) => (g.sim && g.turn === i ? g.sim.p : g.golfers[i].ball)
+
+/** Is golfer `i` playing right now (lining up, swinging or ball in flight)? */
+const isPlaying = (g: GS, i: number) => g.turn === i && (g.phase === 'plan' || g.phase === 'swing' || g.phase === 'ai' || g.phase === 'flight')
+
+/** Values about the player's ball and shot that several HUD panels share. */
 function hudInfo(g: GS) {
   const h = g.hole
-  const p = g.sim ? g.sim.p : g.ball
-  const lie = h.lie(g.ball[0], g.ball[2])
+  const you = player(g)
+  const p = ballOf(g, PLAYER)
+  const lie = h.lie(you.ball[0], you.ball[2])
   const toPin = distXZ(p, h.pin[0], h.pin[1]) / YD
-  const elev = (h.height(h.pin[0], h.pin[1]) - g.ball[1]) / YD
+  const elev = (h.height(h.pin[0], h.pin[1]) - you.ball[1]) / YD
 
   // Wind relative to the aim direction: 0 = blowing straight toward the target.
   const windAng = Math.atan2(-h.wind[0], h.wind[2]) - g.heading
@@ -58,12 +69,16 @@ type HudInfo = ReturnType<typeof hudInfo>
 export function Hud({ g }: { g: GS }) {
   useEveryFrame()
   const info = hudInfo(g)
-  const showShotBar = g.phase !== 'intro' && g.phase !== 'holed'
+  const showShotBar = isPlaying(g, PLAYER) && g.phase !== 'ai'
+  const aiPlaying = isPlaying(g, OPPONENT)
   const confetti = performance.now() - g.confettiAt < CONFETTI_MS
 
   return <div className="hud">
     <div className="vignette" />
-    <HoleCard g={g} info={info} />
+    <div className="left">
+      <HoleCard g={g} info={info} />
+      <OpponentPanel g={g} />
+    </div>
     {g.feedback && <div key={'t' + g.feedbackAt} className="glass toast">{g.feedback}</div>}
     <BannerText g={g} />
 
@@ -75,7 +90,8 @@ export function Hud({ g }: { g: GS }) {
     {showShotBar && <ShotBar g={g} info={info} />}
     {g.phase === 'swing' && <SwingMeter g={g} />}
     {g.phase === 'intro' && <div className="skip">Press Space to tee off</div>}
-    {g.phase === 'flight' && <div className="skip">Space to fast-forward</div>}
+    {g.phase === 'flight' && !aiPlaying && <div className="skip">Space to fast-forward</div>}
+    {aiPlaying && <div className="skip">Space to skip {AI_SHORT}'s shot</div>}
 
     <ScoreStrip g={g} />
     <KeysHint />
@@ -86,8 +102,10 @@ export function Hud({ g }: { g: GS }) {
 /** Hole number, name, par, stroke, distance to pin, plays-like distance, elevation and lie. */
 function HoleCard({ g, info }: { g: GS; info: HudInfo }) {
   const { h, toPin, playsLike, elev, lie, putting } = info
-  const stroke = g.strokes + (g.phase === 'holed' || g.phase === 'flight' ? 0 : 1) // the stroke about to be played
-  const inFeet = toPin < 30
+  const you = player(g)
+  const done = you.holed || g.phase === 'holed' || (g.phase === 'flight' && g.turn === PLAYER)
+  const stroke = you.strokes + (done ? 0 : 1) // the stroke about to be played
+  const [pinValue, pinUnit] = yardsOrFeet(toPin)
   return <div className="glass holecard">
     <div className="holenum">{h.def.num}</div>
     <div>
@@ -96,7 +114,7 @@ function HoleCard({ g, info }: { g: GS; info: HudInfo }) {
       <div className="stats">
         <div className="stat">
           <div className="label">To pin</div>
-          <div className="v">{inFeet ? (toPin * 3).toFixed(0) : toPin.toFixed(0)}<small>{inFeet ? 'ft' : 'yds'}</small></div>
+          <div className="v">{pinValue}<small>{pinUnit}</small></div>
         </div>
         {!putting && <div className="stat">
           <div className="label">Plays like</div>
@@ -160,11 +178,16 @@ function MinimapPanel({ g, info }: { g: GS; info: HudInfo }) {
   const [bx, bz] = mini.map(p[0], p[2])
   const [px, pz] = mini.map(h.pin[0], h.pin[1])
   const planning = g.phase === 'plan' || g.phase === 'swing'
+  const ai = opponent(g)
+  const aiVisible = !ai.holed && (ai.strokes > 0 || g.turn === OPPONENT)
+  const aiPos = ballOf(g, OPPONENT)
+  const [ax, az] = mini.map(aiPos[0], aiPos[2])
+  const youBall = player(g).ball
 
   const aimLine = () => {
     const dx = -Math.sin(g.heading), dz = Math.cos(g.heading)
     const L = carry * YD
-    const [ex, ez] = mini.map(g.ball[0] + dx * L, g.ball[2] + dz * L)
+    const [ex, ez] = mini.map(youBall[0] + dx * L, youBall[2] + dz * L)
     return <>
       <line x1={bx} y1={bz} x2={ex} y2={ez} stroke="#ffd23f" strokeWidth="1.5" strokeDasharray="3 2" />
       <circle cx={ex} cy={ez} r="3" fill="none" stroke="#ff4d6d" strokeWidth="1.5" />
@@ -176,11 +199,12 @@ function MinimapPanel({ g, info }: { g: GS; info: HudInfo }) {
     <div style={{ position: 'relative' }}>
       <img src={mini.url} style={{ width: '100%', display: 'block', borderRadius: 10 }} />
       <svg viewBox={`0 0 ${mini.Wc} ${mini.Hc}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-        {planning && g.club !== PUTTER && aimLine()}
+        {planning && g.turn === PLAYER && g.club !== PUTTER && aimLine()}
         {g.trail.length > 1 && <polyline points={trailPoints()} fill="none" stroke="#fff" strokeWidth="1" opacity=".7" />}
         <line x1={px} y1={pz} x2={px} y2={pz - 8} stroke="#fff" strokeWidth="1" />
         <path d={`M${px},${pz - 8} l5,1.5 l-5,1.5z`} fill="#ff3b3b" />
-        <circle cx={bx} cy={bz} r="3.2" fill="#fff" stroke="#111" strokeWidth="1" />
+        {aiVisible && <circle cx={ax} cy={az} r="3.2" fill="#ff3b3b" stroke="#111" strokeWidth="1" />}
+        {!player(g).holed && <circle cx={bx} cy={bz} r="3.2" fill="#fff" stroke="#111" strokeWidth="1" />}
       </svg>
     </div>
   </div>
@@ -247,29 +271,93 @@ function SwingMeter({ g }: { g: GS }) {
   </div>
 }
 
-/** Running score relative to par plus a cell per hole of the nine. */
+/** Total strokes over the holes both golfers have finished, and the match status text. */
+function matchStatus(g: GS) {
+  const [you, ai] = [player(g), opponent(g)]
+  let diff = 0
+  you.scores.forEach((s, i) => { if (s && ai.scores[i]) diff += s - ai.scores[i] })
+  if (diff === 0) return 'All square'
+  return diff < 0 ? `You lead by ${-diff}` : `${AI_SHORT} leads by ${diff}`
+}
+
+/** Score relative to par over the holes this golfer has finished. */
+function toParTotal(g: GS, golfer: GolferState) {
+  const holes = nineHoles(g.nine)
+  return golfer.scores.reduce((sum, s, i) => sum + (s ? s - holes[i].par : 0), 0)
+}
+
+/** CSS class that marks birdies, eagles and bogeys on the scorecard. */
+function scoreClass(s: number, par: number) {
+  if (!s) return ''
+  const d = s - par
+  return d <= -2 ? 'eagle' : d === -1 ? 'birdie' : d === 1 ? 'bogey' : d >= 2 ? 'dbl' : ''
+}
+
+/** Scorecard for both golfers: a row each with per-hole strokes and the total to par, plus the match status. */
 function ScoreStrip({ g }: { g: GS }) {
   const holes = nineHoles(g.nine)
-  const total = g.scores.reduce((sum, s, i) => sum + (s ? s - holes[i].par : 0), 0)
-  const scoreClass = (s: number, par: number) => {
-    if (!s) return ''
-    const d = s - par
-    return d <= -2 ? 'eagle' : d === -1 ? 'birdie' : d === 1 ? 'bogey' : d >= 2 ? 'dbl' : ''
-  }
   return <div className="glass score">
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-      <span className="label">{g.nine ? 'Back nine' : 'Front nine'}</span>
-      <span className="big" style={{ fontSize: 20, color: total < 0 ? '#ff6b6b' : '#fff' }}>{formatToPar(total)}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+      <span className="label">{g.nine ? 'Back nine' : 'Front nine'} · Total strokes</span>
+      <span className="label" style={{ color: 'var(--ink)' }}>{matchStatus(g)}</span>
     </div>
-    <div className="cells">
-      {holes.map((hd, i) => {
-        const s = g.scores[i]
-        return <div key={i} className={`cell ${i === g.idx ? 'cur' : ''}`}>
-          {hd.num}
-          <div className={`sc ${scoreClass(s, hd.par)}`}>{s || (i === g.idx ? '·' : '')}</div>
+    <div className="scorerow">
+      <div className="who" />
+      <div className="cells">{holes.map((hd, i) => <div key={i} className={`cell ${i === g.idx ? 'cur' : ''}`}>{hd.num}</div>)}</div>
+      <div className="tot" />
+    </div>
+    {g.golfers.map((golfer, gi) => {
+      const total = toParTotal(g, golfer)
+      return <div key={gi} className="scorerow">
+        <div className="who" style={{ color: gi === OPPONENT ? '#ff8a8a' : 'var(--ink)' }}>{golfer.isAI ? AI_SHORT : 'You'}</div>
+        <div className="cells">
+          {holes.map((hd, i) => {
+            const s = golfer.scores[i]
+            return <div key={i} className={`cell ${i === g.idx ? 'cur' : ''}`}>
+              <div className={`sc ${scoreClass(s, hd.par)}`}>{s || (i === g.idx ? '·' : '')}</div>
+            </div>
+          })}
         </div>
-      })}
+        <div className="tot big" style={{ color: total < 0 ? '#ff6b6b' : '#fff' }}>{formatToPar(total)}</div>
+      </div>
+    })}
+  </div>
+}
+
+/** What the AI is doing now, for the opponent panel. */
+function opponentStatus(g: GS): string {
+  const ai = opponent(g)
+  if (ai.holed) return `Finished · ${ai.scores[g.idx]} strokes`
+  if (g.turn === OPPONENT && g.phase === 'ai') return g.ai?.plan ? `Lining up · ${CLUBS[g.club].name}` : 'Reading the shot…'
+  if (g.turn === OPPONENT && g.phase === 'flight') return 'Ball in the air'
+  if (ai.strokes === 0) return 'On the tee'
+  return 'Waiting'
+}
+
+/** The AI opponent: name, difficulty, score, and where its ball is. */
+function OpponentPanel({ g }: { g: GS }) {
+  const ai = opponent(g)
+  const h = g.hole
+  const p = ballOf(g, OPPONENT)
+  const lie = h.lie(p[0], p[2])
+  const [value, unit] = yardsOrFeet(distXZ(p, h.pin[0], h.pin[1]) / YD)
+  const total = toParTotal(g, ai)
+  const active = isPlaying(g, OPPONENT)
+  return <div className={`glass opponent ${active ? 'on' : ''}`}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10 }}>
+      <div className="label" style={{ color: '#ff8a8a' }}>{AI_LABEL}</div>
+      <span className="chip" style={{ background: '#ff3b3b33', color: '#ff8a8a' }}>{AI_LEVELS[g.difficulty].label}</span>
     </div>
+    <div className="stats">
+      <div className="stat"><div className="label">Total</div><div className="v">{formatToPar(total)}</div></div>
+      <div className="stat"><div className="label">Stroke</div><div className="v">{ai.strokes}</div></div>
+      {!ai.holed && <div className="stat"><div className="label">To pin</div><div className="v">{value}<small>{unit}</small></div></div>}
+      {!ai.holed && ai.strokes > 0 && <div className="stat">
+        <div className="label">Lie</div>
+        <div style={{ marginTop: 4 }}><span className="chip" style={{ background: LIE_COL[lie] + '33', color: LIE_COL[lie] }}>{lie}</span></div>
+      </div>}
+    </div>
+    <div className="holemeta" style={{ marginTop: 6 }}>{opponentStatus(g)}</div>
   </div>
 }
 
