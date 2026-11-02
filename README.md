@@ -2,7 +2,7 @@
 Setup: `npm install` then `npm run dev` → visit http://localhost:5173
 
 ## What is this?
-This homework assignment for 15-114 was a two-part code handoff assignment. Another student first created a SPEC file describing the game they wanted to make and its criteria (a golf game), then worked on it for an hour using AI. Another student (that's me, for this repository) worked on the game for another two hours, trying to stay faithful to the SPEC file.
+This homework assignment for 15-114 was a two-part code handoff assignment. Another student (ZaneSoccer16) first created a SPEC file describing the game they wanted to make and its criteria (a golf game), then worked on it for an hour using AI. Another student (that's me, for this repository) worked on the game for another two hours, trying to stay faithful to the SPEC file.
 
 ## Progress
 Done: 18 approximate hole layouts (front/back nine), 3D terrain/trees/ocean, aim/power/club/draw-fade,
