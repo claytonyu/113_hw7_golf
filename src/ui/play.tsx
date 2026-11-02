@@ -4,8 +4,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { active, newGame, roundResult, type GS, type RoundResult, type RoundSetup } from '../game/game'
-import type { Difficulty } from '../config'
+import { active, roundResult, type GS, type RoundResult } from '../game/game'
 import { preview } from '../game/shot'
 import { handleKeyDown } from '../game/input'
 import { World } from '../render/world'
@@ -15,16 +14,19 @@ import { PauseOverlay } from './screens'
 /** How often (ms) the shot preview is refreshed while not in flight. */
 const PREVIEW_REFRESH_MS = 200
 
-/** Plays a nine-hole round against the AI; calls `onExit` with both golfers' scores when it ends or the player quits. */
-export function Play({ nine, difficulty, setup, onExit }: {
-  nine: number
-  difficulty: Difficulty
-  setup: RoundSetup // the player's gear, consumables and look
+/**
+ * Plays a nine-hole round against the AI. `init` creates the state (a new round or a resumed save).
+ * `onExit` is called with both golfers' scores when the round ends or is abandoned;
+ * `onSaveExit` leaves to the menu with the round kept for later.
+ */
+export function Play({ init, onExit, onSaveExit }: {
+  init: () => GS
   onExit: (result: RoundResult) => void
+  onSaveExit: () => void
 }) {
   // The game state is created once and mutated in place; React never copies it.
   const g = useRef<GS | null>(null)
-  if (!g.current) g.current = newGame(nine, difficulty, setup)
+  if (!g.current) g.current = init()
   const gs = g.current
 
   // `ver` is bumped to force a re-render (and a fresh preview) after the state changes.
@@ -59,6 +61,6 @@ export function Play({ nine, difficulty, setup, onExit }: {
       <World g={gs} pv={pv} />
     </Canvas>
     <Hud g={gs} />
-    {paused && <PauseOverlay onQuit={() => onExit(roundResult(gs))} />}
+    {paused && <PauseOverlay onSaveExit={onSaveExit} onQuit={() => onExit(roundResult(gs))} />}
   </div>
 }

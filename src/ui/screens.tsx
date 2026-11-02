@@ -6,6 +6,7 @@
 import { nineHoles } from '../course/holes'
 import { AI_LABEL, AI_LEVELS, AI_NAME, AI_SHORT, CONSUMABLES, DIFFICULTIES, MAX_STROKES, type Difficulty } from '../config'
 import type { RoundResult } from '../game/game'
+import type { RoundSave } from '../progress/roundSave'
 import { recordKey, type Profile } from '../progress/profile'
 import type { RoundRewards } from '../progress/rewards'
 import { CoinPopups, Coins } from './coins'
@@ -34,9 +35,22 @@ function recordText(profile: Profile, nine: number, boosted: boolean) {
   return `${best} (${d === 0 ? 'E' : d > 0 ? `+${d}` : d})`
 }
 
-/** Title panel with coins, the Pro Shop, the AI difficulty choice, records and a button for each nine. */
-export function MainMenu({ profile, difficulty, onDifficulty, onPlay, onShop }: {
+/** One line describing a saved round, e.g. "Front nine · Hole 4 · vs Tiger (Pro) · You +1, Tiger E". */
+function savedRoundText(save: RoundSave) {
+  const holes = nineHoles(save.nine)
+  const toPar = (scores: number[]) => {
+    const d = scores.reduce((sum, s, i) => sum + (s ? s - holes[i].par : 0), 0)
+    return d === 0 ? 'E' : d > 0 ? `+${d}` : `${d}`
+  }
+  return `${save.nine ? 'Back' : 'Front'} nine · Hole ${holes[save.idx].num} · vs ${AI_SHORT} (${AI_LEVELS[save.difficulty].label})`
+    + ` · You ${toPar(save.golfers[0].scores)}, ${AI_SHORT} ${toPar(save.golfers[1].scores)}`
+}
+
+/** Title panel with coins, the Pro Shop, a saved round to resume, the AI difficulty choice, records and a button for each nine. */
+export function MainMenu({ profile, saved, onResume, difficulty, onDifficulty, onPlay, onShop }: {
   profile: Profile
+  saved: RoundSave | null
+  onResume: () => void
   difficulty: Difficulty
   onDifficulty: (d: Difficulty) => void
   onPlay: (nine: number) => void
@@ -50,6 +64,11 @@ export function MainMenu({ profile, difficulty, onDifficulty, onPlay, onShop }: 
     </div>
     <h1 className="title">Torrey Pines<span>SOUTH COURSE</span></h1>
     <p style={{ color: 'var(--dim)', marginTop: 18 }}>Clifftop golf above the Pacific. Read the wind, shape your shot, and nail the timing.</p>
+    {saved && <button className="nine resume" onClick={onResume}>
+      <span className="label">Unfinished round</span>
+      <b>Resume round</b>
+      <small>{savedRoundText(saved)}</small>
+    </button>}
 
     <div className="label" style={{ marginTop: 22 }}>Opponent · {AI_LABEL}</div>
     <div className="difficulties">
@@ -160,8 +179,8 @@ function RewardsPanel({ result, rewards, coins }: { result: RoundResult; rewards
   </div>
 }
 
-/** Controls and simplified rules, with a button to quit the round. */
-export function PauseOverlay({ onQuit }: { onQuit: () => void }) {
+/** Controls and simplified rules, with buttons to save and exit or abandon the round. */
+export function PauseOverlay({ onSaveExit, onQuit }: { onSaveExit: () => void; onQuit: () => void }) {
   return <div className="overlay"><div className="glass">
     <h2 style={{ marginTop: 0 }}>Paused</h2>
     <kbd>A</kbd>/<kbd>D</kbd> aim (hold Shift for fine) · <kbd>W</kbd>/<kbd>S</kbd> power or putt pace · <kbd>Q</kbd>/<kbd>E</kbd> draw / fade · <kbd>R</kbd> straight<br />
@@ -185,6 +204,14 @@ export function PauseOverlay({ onQuit }: { onQuit: () => void }) {
       when you strike. Pars and better pay coins as soon as you hole out. Finishing all nine adds bonuses for
       completion, personal records and beating {AI_SHORT}. Quitting keeps hole coins but skips the round bonuses; boosts already used stay used.
     </div>
-    <p><button className="btn" onClick={onQuit}>Quit to menu</button></p>
+    <h3>Saving</h3>
+    <div style={{ color: 'var(--dim)' }}>
+      The round saves automatically between shots. Reloading mid-shot replays the same shot, so it can't be retaken.
+      Save &amp; exit keeps the round to resume from the menu; abandoning ends it without round bonuses.
+    </div>
+    <p style={{ display: 'flex', gap: 10 }}>
+      <button className="btn" onClick={onSaveExit}>Save &amp; exit</button>
+      <button className="buy" style={{ padding: '14px 20px', fontSize: 14 }} onClick={onQuit}>Abandon round</button>
+    </p>
   </div></div>
 }

@@ -122,3 +122,5 @@ table.card td { text-align: center; min-width: 34px; font-variant-numeric: tabul
 .coinpop { padding: 8px 14px; border-radius: 12px; background: rgba(12,26,38,.75); border: 1px solid rgba(255,210,63,.5); font-weight: 700; font-size: 15px; white-space: nowrap;
   opacity: 0; animation: coinpop 2.8s ease-out forwards; box-shadow: 0 0 24px rgba(255,210,63,.25); }
 @keyframes coinpop { 0% { opacity: 0; transform: translateY(14px) scale(.9); } 12% { opacity: 1; transform: translateY(0) scale(1.05); } 20% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-26px); } }
+
+.nine.resume { width: 100%; margin-top: 18px; border-color: rgba(124,255,178,.5); background: rgba(124,255,178,.1); }

@@ -16,6 +16,7 @@ import { buildHole, headingTo, type Hole } from '../course/course'
 import { CLUBS, PUTTER, LIE_CARRY, MAX_STROKES, YD, AI_NAME, AI_SHORT, type ClubMods, type ConsumableId, type Difficulty } from '../config'
 import { STOCK_MODS, effectiveCarries } from '../progress/equipment'
 import { payHole } from '../progress/rewards'
+import { saveRound } from '../progress/roundSave'
 import type { Ball } from '../sim/sim'
 import { sfx } from '../sound'
 
@@ -199,11 +200,18 @@ const newRoundId = () => `${Date.now().toString(36)}-${Math.random().toString(36
  * player's gear, consumables and look from `setup`, and starts its first hole.
  */
 export function newGame(nine: number, difficulty: Difficulty, setup: RoundSetup): GS {
-  const g: GS = {
+  const g = createState(nine, difficulty, setup, newRoundId())
+  startHole(g, 0)
+  return g
+}
+
+/** A round's state object with nothing played yet (used by newGame and when resuming a save). */
+export function createState(nine: number, difficulty: Difficulty, setup: RoundSetup, roundId: string): GS {
+  return {
     nine, idx: 0, hole: buildHole(HOLES[nine * 9]), phase: 'intro', introT: 0, holedAt: 0,
     golfers: [newGolfer('You', false, setup.mods), newGolfer(AI_NAME, true, STOCK_MODS)],
     turn: PLAYER, honor: PLAYER, difficulty, ai: null,
-    roundId: newRoundId(), charges: [...setup.charges], boostSlot: null, boosted: false, look: setup.look,
+    roundId, charges: [...setup.charges], boostSlot: null, boosted: false, look: setup.look,
     coins: setup.coins, coinPopups: [],
     club: 0, heading: 0, power: 1, curve: 0,
     shotStart: [0, 0, 0], sim: null, acc: 0, fast: false, lastContacts: 0,
@@ -212,8 +220,6 @@ export function newGame(nine: number, difficulty: Difficulty, setup: RoundSetup)
     cam: 0, overhead: false,
     feedback: '', feedbackAt: 0, banner: null, streak: 0, strikeAt: 0, confettiAt: 0, trail: [], fx: [],
   }
-  startHole(g, 0)
-  return g
 }
 
 /**
@@ -250,6 +256,7 @@ export function startHole(g: GS, idx: number) {
   setFeedback(g, h.def.name)
   showBanner(g, `HOLE ${h.def.num}`, '#ffffff', `PAR ${h.def.par} · ${h.def.yards} YDS`)
   prepShot(g)
+  saveRound(g)
 }
 
 /** Hands control to the golfer whose turn it is: the player plans, the AI lines up. */
@@ -329,6 +336,7 @@ export function finishShot(g: GS) {
   g.sim = null
   if (!golfer.holed && golfer.strokes >= MAX_STROKES) pickUp(g, golfer)
   nextTurn(g)
+  saveRound(g) // between shots: the next golfer is up, or the hole is complete
 }
 
 /**

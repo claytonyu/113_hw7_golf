@@ -17,6 +17,7 @@ import { speedForCarry, speedForPutt } from '../sim/calibrate'
 import { active, setFeedback, showBanner, type GS, type ShotPlan } from './game'
 import { armedBoost, boostMods, useArmedBoost } from './boosts'
 import { sfx } from '../sound'
+import { saveRound } from '../progress/roundSave'
 
 /** Launch parameters for a shot, plus the perfect-zone width and lie used to compute them. */
 export interface ShotParams {
@@ -177,12 +178,13 @@ export function strike(g: GS, t: number) {
   g.lastContacts = 0
 
   predictOutcome(g)
+  saveRound(g) // includes the launched ball, so a reload replays this shot instead of retaking it
   if (g.club === PUTTER) sfx.putt()
   else sfx.strike(perfect)
 }
 
 /** Simulates a copy of the shot to completion so the TV camera knows where and when the ball lands. */
-function predictOutcome(g: GS) {
+export function predictOutcome(g: GS) {
   g.contact = null
   g.final = null
   const c = simulateToRest(cloneBall(g.sim!), g.hole, g.hole.wind, b => {

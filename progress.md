@@ -20,6 +20,7 @@
 - Personal records: front/back x boosted/unboosted, shown on the menu and end screen
 - Profile (coins, purchases, equipped gear, records) saved in localStorage and validated on load
 
+- Save and resume: the round autosaves at each hole start, strike and shot end; reloading mid-flight replays the same shot; Resume on the menu, Save & exit / Abandon in the pause screen
+
 ## To do
-- Save and resume rounds (localStorage)
 - Polish: smoother terrain up close, menu camera, performance tuning
