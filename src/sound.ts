@@ -101,6 +101,11 @@ export const sfx = {
     const notes = big ? [523, 659, 784, 1047] : [523, 659, 784]
     notes.forEach((f, i) => tone(f, 0.35, 0.12, 'triangle', 0.15 + i * 0.1))
   },
+  /** Coins earned: two quick bright pings. */
+  coin: () => {
+    tone(1568, 0.09, 0.12, 'triangle')
+    tone(2093, 0.18, 0.12, 'triangle', 0.08)
+  },
   groan: () => {
     noise(1.2, 'bandpass', 500, 0.15, 0.8, 250)
     tone(330, 0.5, 0.08, 'sine', 0, 220)

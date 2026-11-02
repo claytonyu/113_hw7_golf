@@ -1,6 +1,7 @@
 /**
- * Central balancing config: club stats, lie penalties, swing-meter tuning and
- * keyboard step sizes. Tweak numbers here rather than inside game logic.
+ * Central balancing config: club stats, lie penalties, swing-meter tuning,
+ * keyboard step sizes, AI difficulty levels, Pro Shop items and prices, and
+ * currency rewards. Tweak numbers here rather than inside game logic.
  */
 
 /** Meters per yard. The simulation works in meters; the HUD shows yards. */
@@ -157,4 +158,125 @@ export const CONTROLS = {
   minPutt: 0.3,       // shortest putt distance in meters
   curveStep: 0.1,     // draw/fade step per Q/E press (curve ranges from -1 to 1)
   fine: 0.25,         // step multiplier while Shift is held
+}
+
+// ---------- Pro shop: equipment ----------
+
+/**
+ * How a piece of equipment changes the clubs it covers. Every field is a
+ * multiplier (1 = stock), except roughCarry/sandCarry, which replace the
+ * normal lie carry values when set.
+ */
+export interface ClubMods {
+  carry: number      // carry distance
+  zone: number       // perfect-zone width (forgiveness)
+  spin: number       // backspin, which controls how fast the ball stops
+  aimErr: number     // direction error from a mistimed swing
+  distLoss: number   // distance lost from a mistimed swing
+  sandZone: number   // extra perfect-zone multiplier from sand only
+  roughCarry?: number // carry multiplier from the rough (stock: LIE_CARRY.rough)
+  sandCarry?: number  // carry multiplier for wedges from sand (stock: WEDGE_SAND_CARRY)
+}
+export const NO_MODS: ClubMods = { carry: 1, zone: 1, spin: 1, aimErr: 1, distLoss: 1, sandZone: 1 }
+
+/** Equipment slots and the club indexes (into CLUBS) each one covers. */
+export type EquipSlot = 'driver' | 'wood' | 'irons' | 'wedges' | 'putter'
+export const EQUIP_SLOTS: { slot: EquipSlot; label: string; clubs: number[] }[] = [
+  { slot: 'driver', label: 'Driver', clubs: [0] },
+  { slot: 'wood', label: '3 Wood', clubs: [1] },
+  { slot: 'irons', label: 'Irons (4–9)', clubs: [2, 3, 4, 5, 6, 7] },
+  { slot: 'wedges', label: 'Wedges', clubs: [8, 9] },
+  { slot: 'putter', label: 'Putter', clubs: [10] },
+]
+
+/** A permanent equipment upgrade. Price 0 = stock gear every player starts with. */
+export interface EquipmentItem { id: string; slot: EquipSlot; name: string; desc: string; price: number; mods: Partial<ClubMods> }
+
+/** Upgrades are modest, and each gives something up so no option is strictly best. */
+export const EQUIPMENT: EquipmentItem[] = [
+  { id: 'driver-stock', slot: 'driver', name: 'Stock Driver', desc: 'Balanced starter driver.', price: 0, mods: {} },
+  { id: 'driver-tour', slot: 'driver', name: 'Tour Driver', desc: '+6% carry, but a 15% smaller perfect zone.', price: 400, mods: { carry: 1.06, zone: 0.85 } },
+  { id: 'driver-max', slot: 'driver', name: 'Max-Forgive Driver', desc: '30% larger perfect zone, but 3% less carry.', price: 350, mods: { zone: 1.3, carry: 0.97 } },
+
+  { id: 'wood-stock', slot: 'wood', name: 'Stock 3 Wood', desc: 'Balanced starter fairway wood.', price: 0, mods: {} },
+  { id: 'wood-tour', slot: 'wood', name: 'Tour 3 Wood', desc: '+5% carry, but a 12% smaller perfect zone.', price: 300, mods: { carry: 1.05, zone: 0.88 } },
+  { id: 'wood-rescue', slot: 'wood', name: 'Rescue 3 Wood', desc: 'Loses half as much distance from the rough, but 3% less carry.', price: 250, mods: { roughCarry: 0.925, carry: 0.97 } },
+
+  { id: 'irons-stock', slot: 'irons', name: 'Stock Irons', desc: 'Balanced starter irons.', price: 0, mods: {} },
+  { id: 'irons-blade', slot: 'irons', name: 'Forged Blades', desc: '+4% carry, but a 12% smaller perfect zone.', price: 450, mods: { carry: 1.04, zone: 0.88 } },
+  { id: 'irons-cavity', slot: 'irons', name: 'Cavity-Back Irons', desc: '20% larger perfect zone, but 10% less spin (more rollout).', price: 400, mods: { zone: 1.2, spin: 0.9 } },
+
+  { id: 'wedges-stock', slot: 'wedges', name: 'Stock Wedges', desc: 'Balanced starter wedges.', price: 0, mods: {} },
+  { id: 'wedges-spin', slot: 'wedges', name: 'Spin-Milled Wedges', desc: '30% more spin to stop the ball, but an 8% smaller perfect zone.', price: 300, mods: { spin: 1.3, zone: 0.92 } },
+  { id: 'wedges-sand', slot: 'wedges', name: 'Wide-Sole Wedges', desc: 'Full carry and a 30% larger zone from sand, but 15% less spin.', price: 250, mods: { sandCarry: 1, sandZone: 1.3, spin: 0.85 } },
+
+  { id: 'putter-stock', slot: 'putter', name: 'Stock Putter', desc: 'Balanced starter putter.', price: 0, mods: {} },
+  { id: 'putter-mallet', slot: 'putter', name: 'Mallet Putter', desc: '40% less direction error on mistimed putts, but 30% more pace error.', price: 300, mods: { aimErr: 0.6, distLoss: 1.3 } },
+  { id: 'putter-blade', slot: 'putter', name: 'Tour Blade Putter', desc: '40% less pace error on mistimed putts, but 30% more direction error.', price: 300, mods: { distLoss: 0.6, aimErr: 1.3 } },
+]
+
+// ---------- Pro shop: consumables ----------
+
+export type ConsumableId = 'power' | 'tempo' | 'steady'
+export interface ConsumableItem { id: ConsumableId; name: string; desc: string; price: number; color: string }
+
+/** One-shot boosts. A charge is used up only when the boosted shot is struck. */
+export const CONSUMABLES: ConsumableItem[] = [
+  { id: 'power', name: 'Power Boost', desc: '+10% intended carry for one full shot. The preview updates. Not for putts.', price: 60, color: '#ff9f1c' },
+  { id: 'tempo', name: 'Slow Tempo', desc: 'The swing meter moves 30% slower for one shot.', price: 50, color: '#5ab0ff' },
+  { id: 'steady', name: 'Steady Hands', desc: 'The perfect timing zone is 25% wider for one shot.', price: 50, color: '#7CFFB2' },
+]
+
+/** Boost strengths. */
+export const BOOSTS = { powerCarry: 1.1, tempoSpeed: 0.7, steadyZone: 1.25 }
+
+/** Consumable charges a player can bring into one nine-hole round (keys 1, 2, 3). */
+export const MAX_CHARGES = 3
+
+// ---------- Pro shop: cosmetics ----------
+
+export interface BallColor { id: string; kind: 'ball'; name: string; price: number; color: string }
+export interface ClubFinish { id: string; kind: 'finish'; name: string; price: number; shaft: string; head: string }
+export interface Outfit { id: string; kind: 'outfit'; name: string; price: number; shirt: string; pants: string; cap: string }
+export type Cosmetic = BallColor | ClubFinish | Outfit
+
+export const BALL_COLORS: BallColor[] = [
+  { id: 'ball-white', kind: 'ball', name: 'Tour White', price: 0, color: '#ffffff' },
+  { id: 'ball-yellow', kind: 'ball', name: 'Optic Yellow', price: 80, color: '#e8ff3b' },
+  { id: 'ball-pink', kind: 'ball', name: 'Hot Pink', price: 80, color: '#ff5fb3' },
+  { id: 'ball-orange', kind: 'ball', name: 'Matte Orange', price: 80, color: '#ff8c2a' },
+  { id: 'ball-blue', kind: 'ball', name: 'Sky Blue', price: 80, color: '#5ec8ff' },
+  { id: 'ball-gold', kind: 'ball', name: 'Gold', price: 250, color: '#ffcf3f' },
+]
+
+export const CLUB_FINISHES: ClubFinish[] = [
+  { id: 'finish-chrome', kind: 'finish', name: 'Chrome', price: 0, shaft: '#c0c6cc', head: '#222831' },
+  { id: 'finish-black', kind: 'finish', name: 'Black Satin', price: 120, shaft: '#2a2d31', head: '#111214' },
+  { id: 'finish-copper', kind: 'finish', name: 'Copper', price: 150, shaft: '#c98b5a', head: '#8a4b25' },
+  { id: 'finish-blue', kind: 'finish', name: 'Blue Ion', price: 150, shaft: '#7fb3ff', head: '#1f4fbf' },
+  { id: 'finish-gold', kind: 'finish', name: 'Gold Plated', price: 300, shaft: '#f2d27a', head: '#c9a227' },
+]
+
+/** Player outfits. Red-and-black is left to the AI opponent so the two golfers are easy to tell apart. */
+export const OUTFITS: Outfit[] = [
+  { id: 'outfit-navy', kind: 'outfit', name: 'Classic Navy', price: 0, shirt: '#1d3557', pants: '#f1f1f1', cap: '#e63946' },
+  { id: 'outfit-white', kind: 'outfit', name: 'Coastal White', price: 120, shirt: '#f4f4f4', pants: '#2b3a55', cap: '#2b3a55' },
+  { id: 'outfit-pine', kind: 'outfit', name: 'Torrey Pine', price: 120, shirt: '#2d6a4f', pants: '#e9dcc0', cap: '#1b4332' },
+  { id: 'outfit-sunset', kind: 'outfit', name: 'Sunset Orange', price: 120, shirt: '#f48c06', pants: '#f1f1f1', cap: '#ffffff' },
+  { id: 'outfit-purple', kind: 'outfit', name: 'Royal Purple', price: 150, shirt: '#5a189a', pants: '#e0e0e0', cap: '#ffd23f' },
+  { id: 'outfit-sky', kind: 'outfit', name: 'Sand & Sky', price: 150, shirt: '#8ecae6', pants: '#e8d3a6', cap: '#023047' },
+]
+
+/** The AI opponent's fixed look. */
+export const AI_OUTFIT = { shirt: '#c1121f', pants: '#1b1b1b', cap: '#1b1b1b', shaft: '#c0c6cc', head: '#222831' }
+
+// ---------- Progression: currency rewards ----------
+
+/** Coins awarded at the end of a completed nine-hole round. Coins are never taken away. */
+export const REWARDS = {
+  roundComplete: 100,               // always paid for finishing all nine holes
+  holeScore: { par: 10, birdie: 30, eagle: 75, albatross: 150 }, // per hole; better than albatross pays the albatross rate
+  holeInOne: 150,                   // bonus on top of the score reward
+  personalRecord: 75,               // new lowest score for this nine and record category
+  beatAi: { amateur: 40, pro: 100, tiger: 200 } as Record<Difficulty, number>, // fewer total strokes than the AI
 }

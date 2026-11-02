@@ -8,7 +8,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { HOLES } from '../course/holes'
 import { buildHole, dirOf, headingTo } from '../course/course'
-import { AI_LEVELS, PUTTER } from '../config'
+import { AI_LEVELS, AI_OUTFIT, PUTTER } from '../config'
 import { OPPONENT, type GS } from '../game/game'
 import { AI_BACKSWING } from '../game/ai'
 import { advanceGame } from '../game/loop'
@@ -25,11 +25,11 @@ import { PreviewLine, LandingMarker } from './preview'
 /** Longest frame step (s) fed to the game, so a stalled tab doesn't jump the simulation. */
 const MAX_FRAME_DT = 0.05
 
-/** Shirt/pants/cap colors: navy for the player, red and black for the AI opponent. */
-const OUTFITS: GolferColors[] = [
-  { shirt: '#1d3557', pants: '#f1f1f1', cap: '#e63946' },
-  { shirt: '#c1121f', pants: '#1b1b1b', cap: '#1b1b1b' },
-]
+/** Golfer colors: the player's equipped cosmetics, and the AI opponent's fixed red and black. */
+const golferColors = (g: GS): GolferColors[] => [g.look, AI_OUTFIT]
+
+/** Ball colors: the player's equipped ball, and white for the AI. */
+const ballColors = (g: GS) => [g.look.ball, '#ffffff']
 
 /** Where a golfer who is waiting for their turn stands: 3 m behind their ball, looking at the pin. */
 const WAIT_BACK = 3
@@ -137,13 +137,13 @@ export function World({ g, pv }: { g: GS; pv: Preview | null }) {
     {g.golfers.map((_, i) =>
       <mesh key={i} ref={m => { if (m) balls.current[i] = m }} castShadow>
         <sphereGeometry args={[0.06, 20, 16]} />
-        <meshStandardMaterial color="#ffffff" roughness={0.35} emissive="#ffffff" emissiveIntensity={0.25} />
+        <meshStandardMaterial color={ballColors(g)[i]} roughness={0.35} emissive={ballColors(g)[i]} emissiveIntensity={0.25} />
       </mesh>)}
     <mesh ref={marker} rotation={[Math.PI, 0, 0]}>
       <coneGeometry args={[0.07, 0.18, 12]} />
       <meshBasicMaterial color="#ff3b3b" />
     </mesh>
-    {g.golfers.map((_, i) => <Golfer key={i} colors={OUTFITS[i]} get={() => golferPose(g, i)} />)}
+    {g.golfers.map((_, i) => <Golfer key={i} colors={golferColors(g)[i]} get={() => golferPose(g, i)} />)}
     <Trail get={() => g.trail} />
     <Particles get={() => g.fx} />
     {pv && planning && <ShotPreview g={g} pv={pv} putting={putting} />}

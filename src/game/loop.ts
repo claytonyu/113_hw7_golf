@@ -8,6 +8,7 @@ import { step, simulateToRest, isMoving, DT } from '../sim/sim'
 import { active, beginTurn, finishShot, INTRO, type GS } from './game'
 import { strike } from './shot'
 import { advanceAiTurn } from './ai'
+import { meterSpeed } from './boosts'
 import { onContact } from './effects'
 
 /** Fast-forward speed multiplier while Space is pressed during the player's flight. */
@@ -30,10 +31,13 @@ function advanceIntro(g: GS, dt: number) {
   if (g.introT >= INTRO) beginTurn(g)
 }
 
-/** Moves the swing-meter marker. If it reaches the end, the shot is struck as maximally late. */
+/**
+ * Moves the swing-meter marker (slower with Slow Tempo armed). If it reaches
+ * the end, the shot is struck as maximally late.
+ */
 function advanceMeter(g: GS, dt: number) {
   const period = g.club === PUTTER ? METER.puttPeriod : METER.period
-  g.meterT += dt / period
+  g.meterT += dt * meterSpeed(g) / period
   if (g.meterT >= 1) strike(g, 1)
 }
 

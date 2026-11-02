@@ -4,15 +4,18 @@
  * The preview, the AI's planning and the real strike all go through
  * computeShot() and the same simulation, so a perfect strike reproduces the
  * preview exactly and the AI plays by the same physics as the player.
+ * Equipment upgrades and an armed consumable boost enter as ClubMods multipliers.
  */
 import * as THREE from 'three'
 import { dirOf, type Hole, type Lie } from '../course/course'
 import {
-  CLUBS, PUTTER, FIRST_WEDGE, LIE_CARRY, LIE_ZONE, LIE_AIM_ERROR, LIE_SPIN, WEDGE_SAND_CARRY, METER, YD,
+  CLUBS, PUTTER, FIRST_WEDGE, LIE_CARRY, LIE_ZONE, LIE_AIM_ERROR, LIE_SPIN, WEDGE_SAND_CARRY, METER, YD, NO_MODS, CONSUMABLES,
+  type ClubMods, type ConsumableId,
 } from '../config'
 import { launch, step, cloneBall, simulateToRest, type Ball } from '../sim/sim'
 import { speedForCarry, speedForPutt } from '../sim/calibrate'
 import { active, setFeedback, showBanner, type GS, type ShotPlan } from './game'
+import { armedBoost, boostMods, useArmedBoost } from './boosts'
 import { sfx } from '../sound'
 
 /** Launch parameters for a shot, plus the perfect-zone width and lie used to compute them. */
@@ -31,34 +34,48 @@ export function perfectZone(curve: number, lie: Lie) {
   return METER.zone * (LIE_ZONE[lie] ?? 1) * (1 - Math.abs(curve) * METER.shapePenalty)
 }
 
+/** Carry multiplier for the lie, including equipment that softens rough or sand. */
+export function lieCarry(lie: Lie, club: number, mods: ClubMods) {
+  if (lie === 'sand' && club >= FIRST_WEDGE) return mods.sandCarry ?? WEDGE_SAND_CARRY
+  if (lie === 'rough' && mods.roughCarry !== undefined) return mods.roughCarry
+  return LIE_CARRY[lie] ?? 1
+}
+
 /**
- * Computes launch parameters for `plan` played from `ball`. `timingErr` is the
- * meter position minus 0.5 (negative = early). Only the error beyond the perfect
- * zone counts: it pulls the shot left (early) or pushes it right (late) and costs distance.
+ * Computes launch parameters for `plan` played from `ball` with club modifiers
+ * `mods`. `timingErr` is the meter position minus 0.5 (negative = early). Only
+ * the error beyond the perfect zone counts: it pulls the shot left (early) or
+ * pushes it right (late) and costs distance.
  */
-export function computeShot(hole: Hole, ball: number[], plan: ShotPlan, timingErr = 0): ShotParams {
+export function computeShot(hole: Hole, ball: number[], plan: ShotPlan, timingErr = 0, mods: ClubMods = NO_MODS): ShotParams {
   const lie = hole.lie(ball[0], ball[2])
   const club = CLUBS[plan.club]
-  const zone = perfectZone(plan.curve, lie)
+  const zone = perfectZone(plan.curve, lie) * mods.zone * (lie === 'sand' ? mods.sandZone : 1)
   const isPutt = plan.club === PUTTER
 
   const miss = Math.max(0, Math.abs(timingErr) - zone)
-  const aimScale = (isPutt ? METER.putterAim : 1) * (LIE_AIM_ERROR[lie] ?? 1)
+  const aimScale = (isPutt ? METER.putterAim : 1) * (LIE_AIM_ERROR[lie] ?? 1) * mods.aimErr
   const angErr = Math.sign(timingErr) * miss * METER.errDeg * Math.PI / 180 * aimScale
-  const distMul = 1 - miss * METER.distLoss
+  const distMul = 1 - miss * METER.distLoss * mods.distLoss
   const heading = plan.heading + angErr // negative error turns left
 
   if (isPutt) return { heading, speed: speedForPutt(plan.power * distMul), launch: 0, curve: 0, spin: 0, zone, lie }
 
-  const lieMul = lie === 'sand' && plan.club >= FIRST_WEDGE ? WEDGE_SAND_CARRY : LIE_CARRY[lie] ?? 1
-  const carry = club.carry * YD * plan.power * lieMul * distMul
-  const spin = club.spin * (LIE_SPIN[lie] ?? 1)
+  const carry = club.carry * YD * plan.power * lieCarry(lie, plan.club, mods) * distMul * mods.carry
+  const spin = club.spin * (LIE_SPIN[lie] ?? 1) * mods.spin
   return { heading, speed: speedForCarry(carry, club.launch, spin), launch: club.launch, curve: plan.curve, spin, zone, lie }
 }
 
-/** Launch parameters for the active golfer's current plan. */
+/** The active golfer's equipment modifiers for the current club, combined with a boost. */
+export function shotMods(g: GS, boost: ConsumableId | null): ClubMods {
+  const gear = active(g).mods[g.club]
+  const b = boostMods(boost)
+  return { ...gear, carry: gear.carry * (b.carry ?? 1), zone: gear.zone * (b.zone ?? 1) }
+}
+
+/** Launch parameters for the active golfer's current plan, including any armed boost (so the preview shows it). */
 export function shotParams(g: GS, timingErr = 0): ShotParams {
-  return computeShot(g.hole, active(g).ball, g, timingErr)
+  return computeShot(g.hole, active(g).ball, g, timingErr, shotMods(g, armedBoost(g)))
 }
 
 /** A ball launched from `from` with the given parameters. */
@@ -130,14 +147,16 @@ function timingLabel(err: number, perfect: boolean) {
 export function strike(g: GS, t: number) {
   const golfer = active(g)
   const err = t - 0.5
-  const s = shotParams(g, err)
+  const boost = useArmedBoost(g) // spends the charge now, at the strike
+  const s = computeShot(g.hole, golfer.ball, g, err, shotMods(g, boost))
   const perfect = Math.abs(err) <= s.zone
 
   g.meterOn = false
   if (golfer.isAI) {
     setFeedback(g, `${golfer.name}: ${timingLabel(err, perfect)}`)
   } else {
-    setFeedback(g, timingLabel(err, perfect))
+    const used = boost ? ` · ${CONSUMABLES.find(c => c.id === boost)!.name} used` : ''
+    setFeedback(g, timingLabel(err, perfect) + used)
     if (perfect) {
       g.streak++
       showBanner(g, g.streak > 1 ? `PERFECT ×${g.streak}` : 'PERFECT', '#7CFFB2')

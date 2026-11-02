@@ -14,9 +14,12 @@
 - Sound effects (synthesized)
 - Tiger Woods AI opponent (Amateur / Pro / Tiger, default Pro): plays real simulated shots, tee honors then farther-first, skippable shots, opponent panel, two-row scorecard, head-to-head end screen; difficulty saved in localStorage
 
+- Pro shop (mouse): 10 equipment upgrades with tradeoffs, 3 consumables, 16 cosmetics (ball colors, club finishes, outfits); prices in src/config.ts
+- Currency rewards: par-or-better holes and hole-in-ones pay as soon as you hole out (kept if you quit); completing a nine adds completion, personal-record and beat-the-AI bonuses. Each payout pays once, coins are never deducted. Coin counter in the HUD with popups for every gain
+- Consumables: bag of up to 3 charges per round, keys 1/2/3 arm/cancel, one per shot, spent only on strike and saved immediately
+- Personal records: front/back x boosted/unboosted, shown on the menu and end screen
+- Profile (coins, purchases, equipped gear, records) saved in localStorage and validated on load
+
 ## To do
 - Save and resume rounds (localStorage)
-- Pro shop, currency, rewards
-- Consumables (Power Boost, Slow Tempo, Steady Hands on keys 1/2/3)
-- Personal records (front/back, boosted/unboosted)
 - Polish: smoother terrain up close, menu camera, performance tuning

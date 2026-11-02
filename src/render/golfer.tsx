@@ -10,8 +10,8 @@ import { dirOf } from '../course/course'
 /** Where and how to draw the golfer this frame. `swing` is the arm rotation in radians. */
 export interface GolferPose { pos: number[]; heading: number; swing: number; putting: boolean; visible: boolean }
 
-/** Outfit colors. */
-export interface GolferColors { shirt: string; pants: string; cap: string }
+/** Outfit and club-finish colors. */
+export interface GolferColors { shirt: string; pants: string; cap: string; shaft: string; head: string }
 
 const SKIN = '#e0b38c'
 
@@ -20,7 +20,7 @@ const SKIN = '#e0b38c'
  * `get` is polled every frame so the pose follows game state without React re-renders.
  */
 export function Golfer({ get, colors }: { get: () => GolferPose; colors: GolferColors }) {
-  const { shirt, pants, cap } = colors
+  const { shirt, pants, cap, shaft, head } = colors
   const root = useRef<THREE.Group>(null!)
   const arms = useRef<THREE.Group>(null!)
   useFrame(() => {
@@ -50,8 +50,8 @@ export function Golfer({ get, colors }: { get: () => GolferPose; colors: GolferC
       <group ref={arms}>
         <mesh position={[0, -0.32, 0]} castShadow><capsuleGeometry args={[0.055, 0.55, 4, 8]} /><meshStandardMaterial color={shirt} /></mesh>
         <mesh position={[0, -0.66, 0]}><sphereGeometry args={[0.06, 10, 8]} /><meshStandardMaterial color="#fafafa" /></mesh>
-        <mesh position={[0, -1.08, 0]} castShadow><cylinderGeometry args={[0.012, 0.012, 0.85]} /><meshStandardMaterial color="#c0c6cc" metalness={0.9} roughness={0.25} /></mesh>
-        <mesh position={[0.05, -1.5, 0]} castShadow><boxGeometry args={[0.12, 0.05, 0.06]} /><meshStandardMaterial color="#222831" metalness={0.8} roughness={0.3} /></mesh>
+        <mesh position={[0, -1.08, 0]} castShadow><cylinderGeometry args={[0.012, 0.012, 0.85]} /><meshStandardMaterial color={shaft} metalness={0.9} roughness={0.25} /></mesh>
+        <mesh position={[0.05, -1.5, 0]} castShadow><boxGeometry args={[0.12, 0.05, 0.06]} /><meshStandardMaterial color={head} metalness={0.8} roughness={0.3} /></mesh>
       </group>
     </group>
   </group>

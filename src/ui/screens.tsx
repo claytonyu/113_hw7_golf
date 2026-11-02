@@ -1,10 +1,14 @@
 /**
- * Menu-style overlays: the main menu (difficulty and front/back nine choice),
- * the end-of-round scorecard, and the pause/help screen.
+ * Menu-style overlays: the main menu (coins, records, Pro Shop entry,
+ * difficulty and front/back nine choice), the end-of-round scorecard with
+ * rewards, and the pause/help screen.
  */
 import { nineHoles } from '../course/holes'
-import { AI_LABEL, AI_LEVELS, AI_NAME, AI_SHORT, DIFFICULTIES, MAX_STROKES, type Difficulty } from '../config'
+import { AI_LABEL, AI_LEVELS, AI_NAME, AI_SHORT, CONSUMABLES, DIFFICULTIES, MAX_STROKES, type Difficulty } from '../config'
 import type { RoundResult } from '../game/game'
+import { recordKey, type Profile } from '../progress/profile'
+import type { RoundRewards } from '../progress/rewards'
+import { CoinPopups, Coins } from './coins'
 
 /** Total par and yardage for a nine. */
 function nineInfo(nine: number) {
@@ -22,13 +26,28 @@ const DIFFICULTY_BLURB: Record<Difficulty, string> = {
   tiger: 'Shapes shots, plays the percentages, rarely misses.',
 }
 
-/** Title panel with the AI difficulty choice and a button for each nine. */
-export function MainMenu({ difficulty, onDifficulty, onPlay }: {
+/** Best score text for one record, e.g. "38 (+2)". */
+function recordText(profile: Profile, nine: number, boosted: boolean) {
+  const best = profile.records[recordKey(nine, boosted)]
+  if (!best) return '—'
+  const d = best - nineInfo(nine).par
+  return `${best} (${d === 0 ? 'E' : d > 0 ? `+${d}` : d})`
+}
+
+/** Title panel with coins, the Pro Shop, the AI difficulty choice, records and a button for each nine. */
+export function MainMenu({ profile, difficulty, onDifficulty, onPlay, onShop }: {
+  profile: Profile
   difficulty: Difficulty
   onDifficulty: (d: Difficulty) => void
   onPlay: (nine: number) => void
+  onShop: () => void
 }) {
+  const bag = profile.loadout.map(id => CONSUMABLES.find(c => c.id === id)?.name ?? '—').join(' · ')
   return <div className="menu"><div className="glass panel">
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <Coins n={profile.coins} />
+      <button className="diff on" onClick={onShop}>Pro Shop</button>
+    </div>
     <h1 className="title">Torrey Pines<span>SOUTH COURSE</span></h1>
     <p style={{ color: 'var(--dim)', marginTop: 18 }}>Clifftop golf above the Pacific. Read the wind, shape your shot, and nail the timing.</p>
 
@@ -46,9 +65,11 @@ export function MainMenu({ difficulty, onDifficulty, onPlay }: {
           <span className="label">{n ? 'Holes 10–18' : 'Holes 1–9'}</span>
           <b>{n ? 'Back Nine' : 'Front Nine'}</b>
           <small>Par {info.par} · {info.yds.toLocaleString()} yds</small>
+          <small style={{ display: 'block', marginTop: 6 }}>Best {recordText(profile, n, false)} · boosted {recordText(profile, n, true)}</small>
         </button>
       })}
     </div>
+    <div style={{ fontSize: 12, color: 'var(--dim)', marginBottom: 8 }}>Bag: {bag}</div>
     <div style={{ fontSize: 12, color: 'var(--dim)', lineHeight: 2 }}>
       <kbd>A</kbd><kbd>D</kbd> aim <kbd>W</kbd><kbd>S</kbd> power <kbd>Q</kbd><kbd>E</kbd> shape <kbd>←</kbd><kbd>→</kbd> club <kbd>Space</kbd> swing
     </div>
@@ -72,7 +93,12 @@ const formatToPar = (d: number) => (d === 0 ? 'E' : d > 0 ? `+${d}` : `${d}`)
  * Final scorecard for both golfers. Rounds quit early only count holes both
  * golfers finished (score 0 = unplayed), so the match compares like with like.
  */
-export function EndScreen({ result, onMenu }: { result: RoundResult; onMenu: () => void }) {
+export function EndScreen({ result, rewards, coins, onMenu }: {
+  result: RoundResult
+  rewards: RoundRewards
+  coins: number // balance after rewards
+  onMenu: () => void
+}) {
   const holes = nineHoles(result.nine)
   const pars = holes.map(h => h.par)
   const counted = holes.map((_, i) => i).filter(i => result.you[i] && result.opponent[i])
@@ -101,8 +127,37 @@ export function EndScreen({ result, onMenu }: { result: RoundResult; onMenu: () 
       <tr className="big"><td>You</td>{result.you.map(scoreCell)}</tr>
       <tr className="big"><td style={{ color: '#ff8a8a' }}>{AI_SHORT}</td>{result.opponent.map(scoreCell)}</tr>
     </tbody></table>
+    <RewardsPanel result={result} rewards={rewards} coins={coins} />
+    {result.completed && !rewards.alreadyPaid &&
+      <CoinPopups items={rewards.lines.map((l, i) => ({ ...l, id: l.label, delay: 300 + i * 450 }))} />}
     <button className="btn" onClick={onMenu}>Main menu</button>
   </div></div>
+}
+
+/** Coins earned this round, line by line, and the record result. */
+function RewardsPanel({ result, rewards, coins }: { result: RoundResult; rewards: RoundRewards; coins: number }) {
+  const category = result.boosted ? 'boosted' : 'no boosts'
+  if (!result.completed) {
+    return <div className="rewards"><div className="label">Rewards</div><div className="desc">
+      Round not finished · you keep the +◉ {rewards.holeTotal} earned on holes, but round bonuses need all nine holes. Balance <Coins n={coins} />
+    </div></div>
+  }
+  if (rewards.alreadyPaid) {
+    return <div className="rewards"><div className="label">Rewards</div><div className="desc">This round has already been paid out.</div></div>
+  }
+  return <div className="rewards">
+    <div className="label">Earned on the holes</div>
+    {rewards.holeLines.length === 0 && <div className="desc">No par or better this round.</div>}
+    {rewards.holeLines.map(l => <div key={l.label} className="rline"><span>{l.label}</span><span>+◉ {l.coins}</span></div>)}
+    <div className="label" style={{ marginTop: 8 }}>Round bonuses</div>
+    {rewards.lines.map(l => <div key={l.label} className="rline"><span>{l.label}</span><span>+◉ {l.coins}</span></div>)}
+    <div className="rline total"><span>Total this round</span><span>+◉ {rewards.holeTotal + rewards.total}</span></div>
+    <div className="desc" style={{ marginTop: 6 }}>
+      {rewards.newRecord
+        ? `New ${result.nine ? 'back' : 'front'} nine record (${category}): ${rewards.strokes}${rewards.previousRecord ? `, was ${rewards.previousRecord}` : ''}`
+        : `Record (${category}): ${rewards.previousRecord}`} · Balance <Coins n={coins} />
+    </div>
+  </div>
 }
 
 /** Controls and simplified rules, with a button to quit the round. */
@@ -123,6 +178,12 @@ export function PauseOverlay({ onQuit }: { onQuit: () => void }) {
       Total-strokes match against an unofficial, game-simulated AI opponent. The lower score on the previous hole
       has the honor on the tee; after that, whoever is farther from the hole plays first. His shots use the same swing
       meter and ball physics as yours. His ball is marked red on the course and the minimap.
+    </div>
+    <h3>Boosts and rewards</h3>
+    <div style={{ color: 'var(--dim)' }}>
+      <kbd>1</kbd>/<kbd>2</kbd>/<kbd>3</kbd> arm a boost from your bag before swinging (press again to cancel); one per shot, used up only
+      when you strike. Pars and better pay coins as soon as you hole out. Finishing all nine adds bonuses for
+      completion, personal records and beating {AI_SHORT}. Quitting keeps hole coins but skips the round bonuses; boosts already used stay used.
     </div>
     <p><button className="btn" onClick={onQuit}>Quit to menu</button></p>
   </div></div>

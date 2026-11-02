@@ -13,7 +13,9 @@
  */
 import { HOLES } from '../course/holes'
 import { buildHole, headingTo, type Hole } from '../course/course'
-import { CLUBS, PUTTER, LIE_CARRY, MAX_STROKES, YD, AI_NAME, AI_SHORT, type Difficulty } from '../config'
+import { CLUBS, PUTTER, LIE_CARRY, MAX_STROKES, YD, AI_NAME, AI_SHORT, type ClubMods, type ConsumableId, type Difficulty } from '../config'
+import { STOCK_MODS, effectiveCarries } from '../progress/equipment'
+import { payHole } from '../progress/rewards'
 import type { Ball } from '../sim/sim'
 import { sfx } from '../sound'
 
@@ -48,7 +50,22 @@ export interface GolferState {
   strokes: number    // strokes on the current hole
   scores: number[]   // strokes per hole; 0 = not played yet
   holed: boolean     // finished the current hole (holed out or picked up)
+  mods: ClubMods[]   // per-club equipment modifiers (stock for the AI)
 }
+
+/** Colors for the player's ball, clubs and clothes. */
+export interface PlayerLook { ball: string; shaft: string; head: string; shirt: string; pants: string; cap: string }
+
+/** What the player brings into a round from their profile. */
+export interface RoundSetup {
+  mods: ClubMods[]                 // equipped gear
+  charges: (ConsumableId | null)[] // consumable loadout, one per key 1-3
+  look: PlayerLook
+  coins: number                    // balance at the start of the round
+}
+
+/** A "+30 Birdie" coin popup. `at` is the performance.now() time it appeared. */
+export interface CoinPopup { label: string; coins: number; at: number }
 
 /** The AI's progress on its current shot. The planner runs a little each frame (see ai.ts). */
 export interface AiTurn {
@@ -73,6 +90,15 @@ export interface GS extends ShotPlan {
   honor: number           // index of the golfer who tees off first on this hole
   difficulty: Difficulty
   ai: AiTurn | null
+
+  // progression
+  roundId: string                    // unique id, so a round can only pay out once
+  charges: (ConsumableId | null)[]   // the player's consumables for this round (null = empty or used)
+  boostSlot: number | null           // charge armed for the next shot (keys 1-3), if any
+  boosted: boolean                   // a consumable was used this round (separate record category)
+  look: PlayerLook
+  coins: number                      // current coin balance, shown in the HUD
+  coinPopups: CoinPopup[]            // recent coin gains, shown briefly
 
   // the shot in progress (shot plan fields come from ShotPlan)
   shotStart: number[]     // where the in-flight shot was struck from
@@ -114,12 +140,24 @@ export const active = (g: GS) => g.golfers[g.turn]
 export const player = (g: GS) => g.golfers[PLAYER]
 export const opponent = (g: GS) => g.golfers[OPPONENT]
 
-/** Final (or partial, if quit) scores for the end-of-round screen. */
-export interface RoundResult { nine: number; difficulty: Difficulty; you: number[]; opponent: number[] }
+/** Final (or partial, if quit) scores for the end-of-round screen and rewards. */
+export interface RoundResult {
+  id: string
+  nine: number
+  difficulty: Difficulty
+  you: number[]
+  opponent: number[]
+  boosted: boolean
+  completed: boolean // all nine holes finished (only completed rounds earn rewards and records)
+}
 
-/** Snapshot of both golfers' scores. */
+/** Snapshot of the round's scores. */
 export function roundResult(g: GS): RoundResult {
-  return { nine: g.nine, difficulty: g.difficulty, you: [...player(g).scores], opponent: [...opponent(g).scores] }
+  const you = [...player(g).scores]
+  return {
+    id: g.roundId, nine: g.nine, difficulty: g.difficulty, you, opponent: [...opponent(g).scores],
+    boosted: g.boosted, completed: you.every(s => s > 0) && g.phase === 'holed',
+  }
 }
 
 /** Horizontal (x/z) distance from a 3D point to a ground point. */
@@ -149,15 +187,24 @@ export function scoreName(strokes: number, par: number): [string, string] {
 }
 
 /** A golfer at the start of a round. */
-function newGolfer(name: string, isAI: boolean): GolferState {
-  return { name, isAI, ball: [0, 0, 0], lastPos: [0, 0, 0], strokes: 0, scores: Array(9).fill(0), holed: false }
+function newGolfer(name: string, isAI: boolean, mods: ClubMods[]): GolferState {
+  return { name, isAI, ball: [0, 0, 0], lastPos: [0, 0, 0], strokes: 0, scores: Array(9).fill(0), holed: false, mods }
 }
 
-/** Creates a fresh round on the chosen nine against the AI at `difficulty`, and starts its first hole. */
-export function newGame(nine: number, difficulty: Difficulty): GS {
+/** A random id for a new round. */
+const newRoundId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+
+/**
+ * Creates a fresh round on the chosen nine against the AI at `difficulty`, with the
+ * player's gear, consumables and look from `setup`, and starts its first hole.
+ */
+export function newGame(nine: number, difficulty: Difficulty, setup: RoundSetup): GS {
   const g: GS = {
     nine, idx: 0, hole: buildHole(HOLES[nine * 9]), phase: 'intro', introT: 0, holedAt: 0,
-    golfers: [newGolfer('You', false), newGolfer(AI_NAME, true)], turn: PLAYER, honor: PLAYER, difficulty, ai: null,
+    golfers: [newGolfer('You', false, setup.mods), newGolfer(AI_NAME, true, STOCK_MODS)],
+    turn: PLAYER, honor: PLAYER, difficulty, ai: null,
+    roundId: newRoundId(), charges: [...setup.charges], boostSlot: null, boosted: false, look: setup.look,
+    coins: setup.coins, coinPopups: [],
     club: 0, heading: 0, power: 1, curve: 0,
     shotStart: [0, 0, 0], sim: null, acc: 0, fast: false, lastContacts: 0,
     meterT: 0, meterOn: false,
@@ -194,6 +241,7 @@ export function startHole(g: GS, idx: number) {
   }
   g.turn = g.honor
   g.ai = null
+  g.boostSlot = null
   g.sim = null
   g.trail = []
   g.phase = 'intro'
@@ -248,21 +296,21 @@ export function prepShot(g: GS) {
     g.curve = 0
     return
   }
-  const { club, power } = clubFor(d / YD / (LIE_CARRY[lie] ?? 1))
+  const { club, power } = clubFor(d / YD / (LIE_CARRY[lie] ?? 1), effectiveCarries(golfer.mods))
   g.club = club
   g.power = power
 }
 
 /**
  * Chooses the shortest club whose full carry still covers `yards` (allowing 3% short),
- * falling back to the driver, and the power fraction needed.
+ * falling back to the driver, and the power fraction needed. `carries` defaults to stock clubs.
  */
-export function clubFor(yards: number) {
+export function clubFor(yards: number, carries = CLUBS.map(c => c.carry)) {
   let club = 0
   for (let i = 0; i < PUTTER; i++) {
-    if (CLUBS[i].carry >= yards * 0.97) club = i // clubs go longest to shortest, so the last match is the shortest
+    if (carries[i] >= yards * 0.97) club = i // clubs go longest to shortest, so the last match is the shortest
   }
-  return { club, power: Math.min(1, yards / CLUBS[club].carry) }
+  return { club, power: Math.min(1, yards / carries[club]) }
 }
 
 /** Formats a remaining distance in yards, switching to feet inside 30 yards. */
@@ -314,6 +362,7 @@ function holeOut(g: GS, golfer: GolferState, b: Ball) {
   }
   showBanner(g, name, color, `${golfer.strokes} strokes`)
   setFeedback(g, 'In the cup!')
+  awardHole(g, golfer.strokes, par)
   const toPar = golfer.strokes - par
   if (toPar < 0 || golfer.strokes === 1) {
     sfx.cheer(toPar <= -2 || golfer.strokes === 1)
@@ -321,6 +370,16 @@ function holeOut(g: GS, golfer: GolferState, b: Ball) {
   } else if (toPar >= 2) {
     sfx.groan()
   }
+}
+
+/** Pays the player's coins for this hole right away and queues a popup for each reward. */
+function awardHole(g: GS, strokes: number, par: number) {
+  const paid = payHole(g.roundId, g.idx, strokes, par)
+  if (!paid) return
+  g.coins = paid.balance
+  const now = performance.now()
+  for (const line of paid.lines) g.coinPopups.push({ ...line, at: now })
+  sfx.coin()
 }
 
 /** Both golfers are done: shows the player's result and both scores until Space is pressed. */

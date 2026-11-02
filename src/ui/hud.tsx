@@ -1,17 +1,19 @@
 /**
  * Heads-up display drawn over the 3D view: hole card, AI opponent panel, wind,
- * minimap, shot settings, swing meter, scorecard for both golfers, key
- * reminder, banners and confetti.
+ * coin balance and coin popups, minimap, shot settings, consumable slots, swing meter, scorecard for both
+ * golfers, key reminder, banners and confetti.
  *
  * The HUD re-renders every animation frame and reads the mutable game state
  * directly, so it always reflects the latest values without extra plumbing.
  */
 import { useEffect, useMemo, useState } from 'react'
 import { nineHoles } from '../course/holes'
-import { AI_LABEL, AI_LEVELS, AI_SHORT, CLUBS, PUTTER, LIE_CARRY, YD } from '../config'
+import { AI_LABEL, AI_LEVELS, AI_SHORT, CLUBS, CONSUMABLES, PUTTER, YD } from '../config'
 import { distXZ, opponent, player, OPPONENT, PLAYER, type GS, type GolferState } from '../game/game'
-import { shotParams } from '../game/shot'
+import { lieCarry, shotMods, shotParams } from '../game/shot'
+import { armedBoost } from '../game/boosts'
 import { useMinimap } from './minimap'
+import { CoinCounter, CoinPopups, POPUP_MS } from './coins'
 
 const LIE_COL: Record<string, string> = {
   tee: '#7CFFB2', fairway: '#7CFFB2', rough: '#ffb36b', sand: '#f0e0b4', green: '#4fe36a', water: '#8fd3ff', oob: '#ff8a7a',
@@ -60,7 +62,9 @@ function hudInfo(g: GS) {
 
   // Rule-of-thumb "plays like" distance: add elevation, and 1% per mph of headwind.
   const playsLike = toPin + elev + headwind * toPin / 100
-  const carry = CLUBS[g.club].carry * g.power * (LIE_CARRY[lie] ?? 1)
+  // Intended carry in yards, including equipment, lie and an armed Power Boost.
+  const mods = shotMods(g, armedBoost(g))
+  const carry = CLUBS[g.club].carry * g.power * lieCarry(lie, g.club, mods) * mods.carry
   return { h, p, lie, toPin, elev, windAng, windMph, headwind, playsLike, carry, putting: g.club === PUTTER }
 }
 type HudInfo = ReturnType<typeof hudInfo>
@@ -83,11 +87,13 @@ export function Hud({ g }: { g: GS }) {
     <BannerText g={g} />
 
     <div className="right">
+      <CoinCounter coins={g.coins} />
       <WindCompass info={info} />
       <MinimapPanel g={g} info={info} />
     </div>
 
     {showShotBar && <ShotBar g={g} info={info} />}
+    {showShotBar && <BoostSlots g={g} />}
     {g.phase === 'swing' && <SwingMeter g={g} />}
     {g.phase === 'intro' && <div className="skip">Press Space to tee off</div>}
     {g.phase === 'flight' && !aiPlaying && <div className="skip">Space to fast-forward</div>}
@@ -95,6 +101,7 @@ export function Hud({ g }: { g: GS }) {
 
     <ScoreStrip g={g} />
     <KeysHint />
+    <HudCoinPopups g={g} />
     {confetti && <Confetti seed={g.confettiAt} />}
   </div>
 }
@@ -258,7 +265,10 @@ function ShapeReadout({ curve }: { curve: number }) {
 /** The timing meter: a moving needle and a green perfect zone centered on the track. */
 function SwingMeter({ g }: { g: GS }) {
   const zoneHalfWidth = shotParams(g).zone * 100 // in percent of the track
+  const boost = armedBoost(g)
+  const item = boost && CONSUMABLES.find(c => c.id === boost)
   return <div className="glass meter">
+    {item && <div className="label" style={{ color: item.color, textAlign: 'center', marginBottom: 6 }}>{item.name} active</div>}
     <div className="track">
       <div className="zone" style={{ left: `${50 - zoneHalfWidth}%`, width: `${zoneHalfWidth * 2}%` }} />
       <div className="needle" style={{ left: `${g.meterT * 100}%` }} />
@@ -361,11 +371,37 @@ function OpponentPanel({ g }: { g: GS }) {
   </div>
 }
 
+/** The player's three consumable slots (keys 1-3), with the armed one highlighted. */
+function BoostSlots({ g }: { g: GS }) {
+  return <div className="glass boosts">
+    <div className="label">Boosts{g.boosted ? ' · round boosted' : ''}</div>
+    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+      {g.charges.map((id, i) => {
+        const item = id ? CONSUMABLES.find(c => c.id === id)! : null
+        const armed = g.boostSlot === i && g.turn === PLAYER
+        return <div key={i} className={`slot ${armed ? 'on' : ''} ${item ? '' : 'empty'}`} style={item ? { borderColor: item.color, color: item.color } : undefined}>
+          <kbd>{i + 1}</kbd> {item ? item.name : '—'}
+        </div>
+      })}
+    </div>
+  </div>
+}
+
+/** Popups for coins earned during the round, staggered when several arrive at once. */
+function HudCoinPopups({ g }: { g: GS }) {
+  const now = performance.now()
+  const items = g.coinPopups
+    .map((p, i) => ({ ...p, id: `${p.at}-${i}`, delay: (i - g.coinPopups.findIndex(q => q.at === p.at)) * 350 }))
+    .filter(p => now - p.at < POPUP_MS + p.delay)
+  return <CoinPopups items={items} />
+}
+
 /** Compact controls reminder. */
 function KeysHint() {
   return <div className="glass keys">
     <kbd>A</kbd><kbd>D</kbd> aim <kbd>W</kbd><kbd>S</kbd> power <kbd>Q</kbd><kbd>E</kbd> shape <kbd>R</kbd> straight<br />
-    <kbd>←</kbd><kbd>→</kbd> club <kbd>Space</kbd> swing <kbd>C</kbd> cam <kbd>Tab</kbd> overhead <kbd>Esc</kbd> help
+    <kbd>←</kbd><kbd>→</kbd> club <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> boost <kbd>Space</kbd> swing<br />
+    <kbd>C</kbd> cam <kbd>Tab</kbd> overhead <kbd>Esc</kbd> help
   </div>
 }
 

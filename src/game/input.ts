@@ -7,10 +7,11 @@ import { PUTTER, CONTROLS } from '../config'
 import { active, beginTurn, distXZ, roundResult, startHole, type GS, type RoundResult } from './game'
 import { strike } from './shot'
 import { skipAiShot } from './loop'
+import { dropUnfitBoost, toggleBoost } from './boosts'
 import { sfx, unlockAudio } from '../sound'
 
 /** Keys whose browser default (scrolling, focus change) is suppressed during play. */
-const GAME_KEYS = ['Space', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyQ', 'KeyE', 'KeyR', 'KeyC']
+const GAME_KEYS = ['Space', 'Tab', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'KeyQ', 'KeyE', 'KeyR', 'KeyC', 'Digit1', 'Digit2', 'Digit3']
 
 /** Minimum time (ms) after holing out before Space advances, so a held swing press can't skip the result. */
 const HOLED_DEBOUNCE = 700
@@ -85,7 +86,7 @@ function handleSpace(g: GS, actions: KeyActions) {
   }
 }
 
-/** Aim, power, shape and club keys. Shift gives finer steps. */
+/** Aim, power, shape, club and consumable (1-3) keys. Shift gives finer steps. */
 function handlePlanningKey(g: GS, e: KeyboardEvent) {
   const putting = g.club === PUTTER
   const fine = e.shiftKey ? CONTROLS.fine : 1
@@ -122,6 +123,11 @@ function handlePlanningKey(g: GS, e: KeyboardEvent) {
     case 'ArrowRight':
       changeClub(g, 1)
       break
+    case 'Digit1':
+    case 'Digit2':
+    case 'Digit3':
+      if (!e.repeat) toggleBoost(g, Number(e.code.slice(5)) - 1)
+      break
   }
 }
 
@@ -142,4 +148,5 @@ function changeClub(g: GS, dir: -1 | 1) {
   } else if (g.power > 1) {
     g.power = 1 // coming back from the putter, where power was in meters
   }
+  dropUnfitBoost(g)
 }

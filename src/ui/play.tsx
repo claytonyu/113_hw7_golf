@@ -4,7 +4,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { active, newGame, roundResult, type GS, type RoundResult } from '../game/game'
+import { active, newGame, roundResult, type GS, type RoundResult, type RoundSetup } from '../game/game'
 import type { Difficulty } from '../config'
 import { preview } from '../game/shot'
 import { handleKeyDown } from '../game/input'
@@ -16,10 +16,15 @@ import { PauseOverlay } from './screens'
 const PREVIEW_REFRESH_MS = 200
 
 /** Plays a nine-hole round against the AI; calls `onExit` with both golfers' scores when it ends or the player quits. */
-export function Play({ nine, difficulty, onExit }: { nine: number; difficulty: Difficulty; onExit: (result: RoundResult) => void }) {
+export function Play({ nine, difficulty, setup, onExit }: {
+  nine: number
+  difficulty: Difficulty
+  setup: RoundSetup // the player's gear, consumables and look
+  onExit: (result: RoundResult) => void
+}) {
   // The game state is created once and mutated in place; React never copies it.
   const g = useRef<GS | null>(null)
-  if (!g.current) g.current = newGame(nine, difficulty)
+  if (!g.current) g.current = newGame(nine, difficulty, setup)
   const gs = g.current
 
   // `ver` is bumped to force a re-render (and a fresh preview) after the state changes.

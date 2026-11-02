@@ -40,7 +40,7 @@ body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; color: var(-
 .bar .mid { position: absolute; left: 50%; top: -5px; bottom: -5px; width: 2px; background: #fff; opacity: .8; }
 .bar .knob { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 12px var(--gold); }
 
-.meter { position: absolute; bottom: 130px; left: 50%; transform: translateX(-50%); width: min(560px, 80vw); padding: 14px 18px 10px; }
+.meter { position: absolute; bottom: 196px; left: 50%; transform: translateX(-50%); width: min(560px, 80vw); padding: 14px 18px 10px; }
 .track { position: relative; height: 26px; border-radius: 99px; background: linear-gradient(90deg, #ff4d6d 0%, #ff9f1c 30%, #ffd23f 46%, #ffd23f 54%, #ff9f1c 70%, #ff4d6d 100%); box-shadow: inset 0 2px 6px rgba(0,0,0,.35); }
 .zone { position: absolute; top: -3px; bottom: -3px; border-radius: 8px; background: #2dff8f; box-shadow: 0 0 18px #2dff8f, 0 0 4px #fff inset; }
 .needle { position: absolute; top: -10px; bottom: -10px; width: 5px; margin-left: -2.5px; border-radius: 3px; background: #fff; box-shadow: 0 0 10px #fff, 0 0 2px #000; }
@@ -60,6 +60,10 @@ body { font-family: 'Outfit', system-ui, -apple-system, sans-serif; color: var(-
 .sc.birdie { border-radius: 50%; background: #e63946; } .sc.eagle { border-radius: 50%; background: #ffd23f; color: #111; box-shadow: 0 0 0 2px #e63946; }
 .sc.bogey { background: #2b4c7e; } .sc.dbl { background: #1d2d50; box-shadow: 0 0 0 2px #2b4c7e; }
 
+.boosts { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); padding: 8px 12px; }
+.boosts .slot { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.05); white-space: nowrap; }
+.boosts .slot.empty { color: var(--dim); }
+.boosts .slot.on { background: rgba(255,255,255,.18); box-shadow: 0 0 16px currentColor; }
 .keys { position: absolute; bottom: 18px; right: 18px; padding: 10px 14px; font-size: 11px; color: var(--dim); line-height: 1.9; text-align: right; }
 kbd { font-family: inherit; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 5px; background: rgba(255,255,255,.12); border: 1px solid var(--line); color: var(--ink); margin: 0 1px; }
 
@@ -67,7 +71,7 @@ kbd { font-family: inherit; font-size: 10px; font-weight: 700; padding: 1px 6px;
 .confetti i { position: absolute; top: -20px; width: 9px; height: 14px; border-radius: 2px; animation: fall linear forwards; }
 @keyframes fall { to { transform: translateY(110vh) rotate(720deg); } }
 
-.skip { position: absolute; bottom: 140px; left: 50%; transform: translateX(-50%); font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); animation: pulse 1.6s infinite; }
+.skip { position: absolute; bottom: 290px; left: 50%; transform: translateX(-50%); font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); animation: pulse 1.6s infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
 
 /* menu */
@@ -87,3 +91,34 @@ kbd { font-family: inherit; font-size: 10px; font-weight: 700; padding: 1px 6px;
 .overlay .glass { padding: 30px 36px; max-width: 620px; line-height: 1.7; }
 table.card { border-collapse: separate; border-spacing: 5px; margin: 18px auto; }
 table.card td { text-align: center; min-width: 34px; font-variant-numeric: tabular-nums; }
+
+/* pro shop and rewards */
+.coins { font-weight: 800; color: var(--gold); font-variant-numeric: tabular-nums; }
+.shop { width: min(860px, 92vw); max-height: 88vh; display: flex; flex-direction: column; padding: 24px 28px !important; max-width: none !important; }
+.shop-head { display: flex; justify-content: space-between; align-items: center; font-size: 20px; }
+.tabs { display: flex; gap: 8px; margin: 14px 0 6px; }
+.shop-body { overflow-y: auto; padding-right: 6px; flex: 1; }
+.shop-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 12px; }
+.shop .hint { color: var(--dim); font-size: 13px; margin: 8px 0; line-height: 1.5; }
+.shop .group { margin-top: 14px; }
+.shop .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 10px; border-radius: 12px; background: rgba(255,255,255,.04); margin-top: 6px; line-height: 1.4; }
+.desc { font-size: 12px; color: var(--dim); }
+.buy { pointer-events: auto; font-family: inherit; font-size: 12px; font-weight: 700; padding: 7px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgba(255,255,255,.08); color: var(--ink); cursor: pointer; white-space: nowrap; }
+.buy.primary { background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #1b1b1b; border-color: transparent; }
+.buy:disabled { opacity: .45; cursor: default; }
+.swatches { display: inline-flex; gap: 3px; vertical-align: middle; margin-right: 6px; }
+.swatches i { width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,.4); display: inline-block; }
+.rewards { text-align: left; margin: 4px auto 16px; max-width: 420px; padding: 12px 16px; border-radius: 14px; background: rgba(255,255,255,.05); }
+.rline { display: flex; justify-content: space-between; font-size: 14px; }
+.rline span:last-child { color: var(--gold); font-weight: 700; }
+.rline.total { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; font-weight: 800; }
+
+/* coin counter and popups */
+.coinbox { padding: 8px 14px; text-align: right; min-width: 120px; }
+.coinbox .coins { font-size: 20px; }
+.coinbox.bump { animation: coinbump .6s ease-out; }
+@keyframes coinbump { 30% { transform: scale(1.12); box-shadow: 0 0 30px rgba(255,210,63,.6); } }
+.coinpops { position: fixed; top: 96px; right: 160px; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none; z-index: 5; }
+.coinpop { padding: 8px 14px; border-radius: 12px; background: rgba(12,26,38,.75); border: 1px solid rgba(255,210,63,.5); font-weight: 700; font-size: 15px; white-space: nowrap;
+  opacity: 0; animation: coinpop 2.8s ease-out forwards; box-shadow: 0 0 24px rgba(255,210,63,.25); }
+@keyframes coinpop { 0% { opacity: 0; transform: translateY(14px) scale(.9); } 12% { opacity: 1; transform: translateY(0) scale(1.05); } 20% { transform: scale(1); } 80% { opacity: 1; } 100% { opacity: 0; transform: translateY(-26px); } }
