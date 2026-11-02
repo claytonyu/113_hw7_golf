@@ -60,12 +60,10 @@ function hudInfo(g: GS) {
   const windMph = Math.hypot(h.wind[0], h.wind[2]) / 0.447
   const headwind = -Math.cos(windAng) * windMph // positive = into the wind
 
-  // Rule-of-thumb "plays like" distance: add elevation, and 1% per mph of headwind.
-  const playsLike = toPin + elev + headwind * toPin / 100
   // Intended carry in yards, including equipment, lie and an armed Power Boost.
   const mods = shotMods(g, armedBoost(g))
   const carry = CLUBS[g.club].carry * g.power * lieCarry(lie, g.club, mods) * mods.carry
-  return { h, p, lie, toPin, elev, windAng, windMph, headwind, playsLike, carry, putting: g.club === PUTTER }
+  return { h, p, lie, toPin, elev, windAng, windMph, headwind, carry, putting: g.club === PUTTER }
 }
 type HudInfo = ReturnType<typeof hudInfo>
 
@@ -106,9 +104,9 @@ export function Hud({ g }: { g: GS }) {
   </div>
 }
 
-/** Hole number, name, par, stroke, distance to pin, plays-like distance, elevation and lie. */
+/** Hole number, name and par, then elevation, stroke, distance to pin and lie. */
 function HoleCard({ g, info }: { g: GS; info: HudInfo }) {
-  const { h, toPin, playsLike, elev, lie, putting } = info
+  const { h, toPin, elev, lie } = info
   const you = player(g)
   const done = you.holed || g.phase === 'holed' || (g.phase === 'flight' && g.turn === PLAYER)
   const stroke = you.strokes + (done ? 0 : 1) // the stroke about to be played
@@ -117,19 +115,19 @@ function HoleCard({ g, info }: { g: GS; info: HudInfo }) {
     <div className="holenum">{h.def.num}</div>
     <div>
       <div className="holename">{h.def.name}</div>
-      <div className="holemeta">PAR {h.def.par} · {h.def.yards} YDS · STROKE {stroke}</div>
+      <div className="holemeta">PAR {h.def.par} · {h.def.yards} YDS</div>
       <div className="stats">
-        <div className="stat">
-          <div className="label">To pin</div>
-          <div className="v">{pinValue}<small>{pinUnit}</small></div>
-        </div>
-        {!putting && <div className="stat">
-          <div className="label">Plays like</div>
-          <div className="v">{playsLike.toFixed(0)}<small>yds</small></div>
-        </div>}
         <div className="stat">
           <div className="label">Elev</div>
           <div className="v">{elev >= 0 ? '↑' : '↓'}{Math.abs(elev).toFixed(0)}<small>yds</small></div>
+        </div>
+        <div className="stat">
+          <div className="label">Stroke</div>
+          <div className="v">{stroke}</div>
+        </div>
+        <div className="stat">
+          <div className="label">To pin</div>
+          <div className="v">{pinValue}<small>{pinUnit}</small></div>
         </div>
         <div className="stat">
           <div className="label">Lie</div>
