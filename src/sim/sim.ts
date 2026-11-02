@@ -9,6 +9,7 @@
  */
 import type { Hole, Lie } from '../course/course'
 import { dirOf } from '../course/course'
+import { BOUNCE, ROLL } from '../config'
 
 export const G = 9.81           // gravity (m/s^2)
 export const DT = 1 / 120       // fixed simulation step (s)
@@ -17,16 +18,16 @@ export const LIFT = 1.0         // lift per unit of spin and speed
 export const SPIN_DECAY = 0.1   // backspin decay rate (1/s)
 export const CURVE_A = 1.7      // sideways acceleration (m/s^2) at full draw/fade
 
-/** Rolling deceleration (m/s^2) by lie. Higher = the ball stops sooner. */
-export const ROLL: Record<string, number> = { green: 0.55, fairway: 3.2, tee: 3.2, rough: 6.5, sand: 9, water: 20, oob: 3 }
-
-/** [restitution, friction] on impact, by lie. Restitution keeps vertical speed; friction removes sliding speed. */
-const BOUNCE: Record<string, [number, number]> = {
-  green: [0.25, 0.25], fairway: [0.35, 0.3], tee: [0.35, 0.3], rough: [0.15, 0.6], sand: [0.03, 0.9], water: [0, 1], oob: [0.2, 0.5],
-}
+// Per-lie rolling deceleration (ROLL) and bounce (BOUNCE) tables live in config.ts.
 
 /** Fraction of slope gravity that accelerates a rolling ball (5/7 for a solid rolling sphere). */
-const ROLL_SLOPE = 0.71
+export const ROLL_SLOPE = 0.71
+
+/**
+ * Ball mode when it reaches an unplayable lie. Water and dry penalty areas
+ * (canyons, cliffs) both end the shot as 'water' (a penalty area); 'oob' stays 'oob'.
+ */
+const endMode = (lie: Lie): Mode | null => (lie === 'water' || lie === 'hazard' ? 'water' : lie === 'oob' ? 'oob' : null)
 
 /** A ball stops bouncing and starts rolling once its rebound speed drops below this (m/s). */
 const MIN_BOUNCE = 1.2
@@ -156,7 +157,8 @@ function landOrBounce(b: Ball, hole: Hole, ground: number): 'contact' | null {
   const lie = hole.lie(b.p[0], b.p[2])
   b.p[1] = ground
   b.contacts++
-  if (lie === 'water' || lie === 'oob') { b.mode = lie; return 'contact' }
+  const end = endMode(lie)
+  if (end) { b.mode = end; return 'contact' }
   if (cupCheck(b, hole, 2.5)) return 'contact'
 
   // Split velocity into the part into the ground (vn) and the part along it (vt).
@@ -184,7 +186,8 @@ function landOrBounce(b: Ball, hole: Hole, ground: number): 'contact' | null {
 function stepRoll(b: Ball, hole: Hole) {
   const [px, , pz] = b.p
   const lie: Lie = hole.lie(px, pz)
-  if (lie === 'water' || lie === 'oob') { b.mode = lie; return }
+  const end = endMode(lie)
+  if (end) { b.mode = end; return }
 
   const [gx, gz] = grad(hole, px, pz)
   const ax = -G * ROLL_SLOPE * gx, az = -G * ROLL_SLOPE * gz

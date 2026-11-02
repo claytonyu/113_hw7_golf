@@ -19,6 +19,7 @@ const MAX_STEPS_PER_FRAME = 200
 
 /** Advances the game by `dt` seconds of real time. */
 export function advanceGame(g: GS, dt: number) {
+  if (g.paused) return // the meter, the AI and the ball all freeze
   if (g.phase === 'intro') advanceIntro(g, dt)
   if (g.phase === 'swing' && g.meterOn) advanceMeter(g, dt)
   if (g.phase === 'ai' && g.ai) advanceAiTurn(g, dt)

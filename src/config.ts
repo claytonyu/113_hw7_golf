@@ -61,10 +61,28 @@ export const METER = {
   distLoss: 0.7,    // fraction of distance lost per unit of timing error outside the zone
   putterAim: 0.25,  // putter direction errors are scaled down by this factor
   shapePenalty: 0.3, // full draw/fade shrinks the perfect zone by this fraction
+  spreadErr: 0.1,   // the landing-dispersion area shows strikes mistimed by up to this much beyond the perfect zone
 }
 
 /** Strokes after which the player picks up and moves to the next hole. */
 export const MAX_STROKES = 10
+
+/** Tee shots on holes longer than this (meters) aim down the first leg instead of at the pin. */
+export const AIM_DOWN_LEG_DIST = 260
+
+// ---------- Ball physics by surface ----------
+
+/** Rolling deceleration (m/s^2) by lie. Higher = the ball stops sooner. */
+export const ROLL: Record<string, number> = { green: 0.55, fairway: 3.2, tee: 3.2, rough: 6.5, sand: 9, water: 20, hazard: 20, oob: 3 }
+
+/** [restitution, friction] on impact, by lie. Restitution keeps vertical speed; friction removes sliding speed. */
+export const BOUNCE: Record<string, [number, number]> = {
+  green: [0.25, 0.25], fairway: [0.35, 0.3], tee: [0.35, 0.3], rough: [0.15, 0.6], sand: [0.03, 0.9],
+  water: [0, 1], hazard: [0, 1], oob: [0.2, 0.5],
+}
+
+/** Height (m) of the ocean surface. Ground below it on the ocean side is water. */
+export const OCEAN_Y = -20.5
 
 // ---------- AI opponent ----------
 
@@ -154,7 +172,10 @@ export const CONTROLS = {
   puttAimStep: 0.004, // radians per A/D press while putting
   powerStep: 0.02,    // fraction of full power per W/S press
   minPower: 0.1,
-  puttStep: 0.15,     // meters of putt distance per W/S press
+  puttStep: 0.3,      // minimum meters of putt distance per W/S press (about 1 ft)
+  puttStepFrac: 0.015, // putt step as a fraction of the current putt distance, when that is larger
+  holdAccel: 0.1,     // holding W/S: each key repeat grows the putt step by this fraction...
+  holdAccelMax: 3,    // ...up to this multiple of the first step
   minPutt: 0.3,       // shortest putt distance in meters
   curveStep: 0.1,     // draw/fade step per Q/E press (curve ranges from -1 to 1)
   fine: 0.25,         // step multiplier while Shift is held

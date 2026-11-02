@@ -4,7 +4,7 @@
  */
 import { useMemo } from 'react'
 import * as THREE from 'three'
-import type { Hole } from '../course/course'
+import { CLIFF_LIP, type Hole } from '../course/course'
 import { grainTexture } from './textures'
 
 const COL = {
@@ -14,6 +14,7 @@ const COL = {
   sand: new THREE.Color('#f0e0b4'), tee: new THREE.Color('#6bbd4c'),
   rock: new THREE.Color('#c9a27a'), rock2: new THREE.Color('#a87d58'), beach: new THREE.Color('#e8d3a6'),
   oob: new THREE.Color('#8a8a52'), pond: new THREE.Color('#3f7f8f'),
+  canyon: new THREE.Color('#9c7b55'), scrub: new THREE.Color('#6f6a3a'),
 }
 
 /** Grid spacing of the terrain mesh in meters. */
@@ -21,12 +22,12 @@ const RESOLUTION = 2.2
 
 /** Writes the ground color at (x, z), with terrain height y, into `c`. */
 function terrainColor(hole: Hole, x: number, z: number, y: number, c: THREE.Color) {
-  const [gx, gz] = hole.green
+  const [gx] = hole.green
   const lie = hole.lie(x, z)
   const pr = hole.project(x, z)
-  const dg = Math.hypot(x - gx, z - gz)
+  const dg = hole.greenDist(x, z)
   const noise = Math.sin(x * 0.13) * Math.cos(z * 0.11) * 0.5 + Math.sin(x * 0.41 + z * 0.37) * 0.25
-  const cliff = hole.def.ocean && pr.lat * hole.def.ocean.side > hole.def.ocean.dist + 1
+  const cliff = hole.def.ocean && pr.lat * hole.def.ocean.side > hole.def.ocean.dist + CLIFF_LIP
 
   if (cliff && y < -17) c.copy(COL.beach)
   else if (cliff) c.copy(COL.rock).lerp(COL.rock2, 0.5 + 0.5 * Math.sin(y * 1.7 + noise)) // rock strata by height
@@ -37,6 +38,7 @@ function terrainColor(hole: Hole, x: number, z: number, y: number, c: THREE.Colo
   }
   else if (lie === 'sand') c.copy(COL.sand).offsetHSL(0, 0, noise * 0.03)
   else if (lie === 'water') c.copy(COL.pond)
+  else if (lie === 'hazard') c.copy(COL.canyon).lerp(COL.scrub, 0.5 + noise) // canyon: sandy dirt and scrub
   else if (dg < hole.def.greenR + 2.5) c.copy(COL.fringe)
   else if (lie === 'tee') c.copy(COL.tee)
   else if (lie === 'fairway') {
@@ -47,7 +49,7 @@ function terrainColor(hole: Hole, x: number, z: number, y: number, c: THREE.Colo
   else if (lie === 'oob') c.copy(COL.oob).lerp(COL.deep, 0.5 + noise * 0.5)
   else {
     // Rough darkens from first cut to deep rough over the 30 m beyond the fairway edge.
-    const t = Math.min(1, Math.max(0, (pr.dist - hole.def.width / 2) / 30))
+    const t = Math.min(1, Math.max(0, (pr.dist - hole.halfWidth(pr.along)) / 30))
     c.copy(COL.firstCut).lerp(COL.rough, Math.min(1, t * 2)).lerp(COL.deep, Math.max(0, t - 0.5 + noise * 0.3))
   }
 }

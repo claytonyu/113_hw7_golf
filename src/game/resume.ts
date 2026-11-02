@@ -12,6 +12,7 @@ import { predictOutcome } from './shot'
  * - intro: replays the hole flyover.
  * - turn: the golfer who was up plans (or the AI lines up) again from their ball.
  * - flight: the saved launched ball flies again, giving the same result as before the reload.
+ * - drop: the player chooses the same penalty relief again (the penalty stroke is already counted).
  * - holed: shows the finished hole; Space moves on.
  */
 export function resumeGame(save: RoundSave, coins: number): GS {
@@ -37,6 +38,9 @@ export function resumeGame(save: RoundSave, coins: number): GS {
     g.trail = []
     g.strikeAt = performance.now() - 10_000 // the swing animation already finished
     predictOutcome(g)
+  } else if (save.phase === 'drop' && save.relief) {
+    g.relief = { title: save.relief.title, options: save.relief.options.map(o => ({ label: o.label, pos: [...o.pos] })) }
+    g.phase = 'drop'
   } else if (save.phase === 'holed') {
     g.phase = 'holed'
     showBanner(g, `HOLE ${h.def.num} COMPLETE`, '#ffffff', 'Space for next hole')

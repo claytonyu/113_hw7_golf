@@ -11,6 +11,7 @@ type RGB = [number, number, number]
 const MAX_PARTICLES = 600
 const SPLASH: RGB = [0.85, 0.95, 1]
 const SAND: RGB = [0.93, 0.85, 0.62]
+const DUST: RGB = [0.7, 0.58, 0.42]
 const GREEN_GRASS: RGB = [0.45, 0.85, 0.4]
 const GRASS: RGB = [0.35, 0.6, 0.25]
 
@@ -35,6 +36,12 @@ function burst(g: GS, p: number[], n: number, c: RGB, spread: number, up: number
 export function onContact(g: GS, b: Ball) {
   const lie = g.hole.lie(b.p[0], b.p[2])
   const speed = Math.hypot(...b.v)
+  if (b.mode === 'water' && lie === 'hazard') {
+    // Dry penalty area (canyon, cliff, beach): a puff of dust instead of a splash.
+    burst(g, b.p, 40, DUST, 2.5, 3)
+    sfx.sand()
+    return
+  }
   if (b.mode === 'water') {
     burst(g, b.p, 80, SPLASH, 2.5, 7)
     sfx.splash()

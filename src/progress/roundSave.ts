@@ -11,7 +11,7 @@
  */
 import { CLUBS, CONSUMABLES, DIFFICULTIES, NO_MODS, type ClubMods, type ConsumableId, type Difficulty } from '../config'
 import type { Ball, Mode } from '../sim/sim'
-import type { GS, GolferState, PlayerLook } from '../game/game'
+import type { GS, GolferState, PlayerLook, Relief } from '../game/game'
 
 const STORAGE_KEY = 'torrey.round.v1'
 
@@ -27,7 +27,8 @@ export interface RoundSave {
   charges: (ConsumableId | null)[]
   boosted: boolean
   look: PlayerLook
-  phase: 'intro' | 'turn' | 'flight' | 'holed' // 'turn' = waiting for the active golfer to play
+  phase: 'intro' | 'turn' | 'flight' | 'drop' | 'holed' // 'turn' = waiting for the active golfer to play
+  relief?: Relief | null // only for 'drop': the penalty relief the player still has to choose
   // only for 'flight': the shot in progress
   sim: Ball | null
   shotStart: number[]
@@ -40,12 +41,15 @@ export interface RoundSave {
 /** Copies the parts of the game state worth saving. */
 export function snapshot(g: GS): RoundSave {
   const flying = g.phase === 'flight' && g.sim !== null
-  const phase: RoundSave['phase'] = g.phase === 'intro' || g.phase === 'holed' ? g.phase : flying ? 'flight' : 'turn'
+  const phase: RoundSave['phase'] = g.phase === 'intro' || g.phase === 'holed' || g.phase === 'drop' ? g.phase : flying ? 'flight' : 'turn'
   return {
     nine: g.nine, idx: g.idx, difficulty: g.difficulty, roundId: g.roundId,
     golfers: g.golfers.map(x => ({ ...x, ball: [...x.ball], lastPos: [...x.lastPos], scores: [...x.scores], mods: x.mods.map(m => ({ ...m })) })),
     turn: g.turn, honor: g.honor, charges: [...g.charges], boosted: g.boosted, look: { ...g.look },
     phase,
+    relief: g.phase === 'drop' && g.relief
+      ? { title: g.relief.title, options: g.relief.options.map(o => ({ label: o.label, pos: [...o.pos] })) }
+      : null,
     sim: flying ? { ...g.sim!, p: [...g.sim!.p], v: [...g.sim!.v] } : null,
     shotStart: [...g.shotStart], club: g.club, heading: g.heading, streak: g.streak,
     savedAt: Date.now(),
@@ -104,6 +108,12 @@ function validGolfer(v: any): v is GolferState {
     && validMods(v.mods)
 }
 
+function validRelief(v: any): v is Relief {
+  return v && typeof v === 'object' && typeof v.title === 'string' && Array.isArray(v.options)
+    && v.options.length >= 1 && v.options.length <= 3
+    && v.options.every((o: any) => o && typeof o.label === 'string' && isVec3(o.pos))
+}
+
 function validBall(v: any): v is Ball {
   return v && typeof v === 'object' && isVec3(v.p) && isVec3(v.v) && MODES.includes(v.mode)
     && [v.t, v.curve, v.v0, v.spin, v.spin0].every(isNum) && isInt(v.contacts, 0, 1e6)
@@ -121,7 +131,8 @@ export function validateRound(raw: any): RoundSave | null {
     && raw.charges.every((c: unknown) => c === null || CONSUMABLES.some(x => x.id === c))
     && typeof raw.boosted === 'boolean'
     && raw.look && ['ball', 'shaft', 'head', 'shirt', 'pants', 'cap'].every(k => isColor(raw.look[k]))
-    && ['intro', 'turn', 'flight', 'holed'].includes(raw.phase)
+    && ['intro', 'turn', 'flight', 'drop', 'holed'].includes(raw.phase)
+    && (raw.phase !== 'drop' || validRelief(raw.relief))
     && (raw.phase !== 'flight' || validBall(raw.sim))
     && isVec3(raw.shotStart) && isInt(raw.club, 0, CLUBS.length - 1) && isNum(raw.heading)
     && isInt(raw.streak, 0, 1e6) && isNum(raw.savedAt)

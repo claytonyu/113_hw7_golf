@@ -12,7 +12,7 @@ import { AI_LEVELS, AI_OUTFIT, PUTTER } from '../config'
 import { OPPONENT, type GS } from '../game/game'
 import { AI_BACKSWING } from '../game/ai'
 import { advanceGame } from '../game/loop'
-import { dispersionSize, type Preview } from '../game/shot'
+import type { Preview } from '../game/shot'
 import { cameraGoal } from './camera'
 import { Atmosphere, Ocean } from './environment'
 import { Terrain } from './terrain'
@@ -56,7 +56,7 @@ function golferPose(g: GS, i: number): GolferPose {
   const backswing = (k: number) => -amp * (1 - (1 - k) * (1 - k)) // eases out toward the top
   const waggle = Math.sin(now / 400) * 0.03
   let swing: number
-  if (g.phase === 'plan' || g.phase === 'intro') {
+  if (g.phase === 'plan' || g.phase === 'intro' || g.phase === 'drop') {
     swing = waggle
   } else if (g.phase === 'swing') {
     // The backswing eases out over the first 45% of the meter.
@@ -95,6 +95,8 @@ export function World({ g, pv }: { g: GS; pv: Preview | null }) {
   const { camera } = useThree()
   const camPos = useRef(new THREE.Vector3(0, 30, -60))
   const look = useRef(new THREE.Vector3(0, 0, 100))
+  const land = useRef<number[] | null>(null) // previewed landing point, for the Landing camera
+  land.current = pv?.land ?? null
 
   useFrame(({ clock }, dt) => {
     advanceGame(g, Math.min(dt, MAX_FRAME_DT))
@@ -116,7 +118,7 @@ export function World({ g, pv }: { g: GS; pv: Preview | null }) {
     marker.current.visible = aiBall.visible
 
     // Ease the camera toward its goal (exponential smoothing, frame-rate independent).
-    const goal = cameraGoal(g, ballPosition(g), clock.elapsedTime)
+    const goal = cameraGoal(g, ballPosition(g), clock.elapsedTime, land.current)
     const k = 1 - Math.exp(-Math.min(dt, MAX_FRAME_DT) * goal.speed)
     camPos.current.lerp(goal.pos, k)
     look.current.lerp(goal.look, k)
@@ -146,16 +148,15 @@ export function World({ g, pv }: { g: GS; pv: Preview | null }) {
     {g.golfers.map((_, i) => <Golfer key={i} colors={golferColors(g)[i]} get={() => golferPose(g, i)} />)}
     <Trail get={() => g.trail} />
     <Particles get={() => g.fx} />
-    {pv && planning && <ShotPreview g={g} pv={pv} putting={putting} />}
+    {pv && planning && <ShotPreview pv={pv} putting={putting} />}
   </>
 }
 
-/** Trajectory line plus, for full shots, the landing marker. */
-function ShotPreview({ g, pv, putting }: { g: GS; pv: Preview; putting: boolean }) {
-  const [w, l] = dispersionSize(g.club, pv.s.lie)
+/** Trajectory line plus, for full shots, the landing marker and simulated dispersion area. */
+function ShotPreview({ pv, putting }: { pv: Preview; putting: boolean }) {
   return <>
     <PreviewLine pts={pv.pts} color={putting ? '#ffffff' : '#ffd23f'} />
-    {pv.land && <LandingMarker pos={pv.land} heading={pv.s.heading} w={w} l={l} />}
+    {pv.land && pv.spread && <LandingMarker pos={pv.land} heading={pv.s.heading} spread={pv.spread} />}
   </>
 }
 

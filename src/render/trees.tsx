@@ -45,7 +45,7 @@ function scatterVegetation(hole: Hole): Vegetation {
 
     const lie = hole.lie(x, z)
     if (lie !== 'rough' && lie !== 'oob') continue
-    if (Math.hypot(x - hole.green[0], z - hole.green[1]) < hole.def.greenR + 14 || Math.hypot(x, z) < 20) continue
+    if (hole.greenDist(x, z) < hole.def.greenR + 14 || Math.hypot(x, z) < 20) continue
     const y = hole.height(x, z)
     if (y < -3) continue
 

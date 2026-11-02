@@ -60,7 +60,7 @@ export function computeShot(hole: Hole, ball: number[], plan: ShotPlan, timingEr
   const distMul = 1 - miss * METER.distLoss * mods.distLoss
   const heading = plan.heading + angErr // negative error turns left
 
-  if (isPutt) return { heading, speed: speedForPutt(plan.power * distMul), launch: 0, curve: 0, spin: 0, zone, lie }
+  if (isPutt) return { heading, speed: speedForPutt(hole, ball, heading, plan.power * distMul), launch: 0, curve: 0, spin: 0, zone, lie }
 
   const carry = club.carry * YD * plan.power * lieCarry(lie, plan.club, mods) * distMul * mods.carry
   const spin = club.spin * (LIE_SPIN[lie] ?? 1) * mods.spin
@@ -84,8 +84,14 @@ export function launchShot(from: number[], s: ShotParams): Ball {
   return launch(from, s.heading, s.speed, s.launch, s.curve, s.spin)
 }
 
-/** Preview geometry: line points, first-contact point (null for putts), and the params used. */
-export interface Preview { pts: THREE.Vector3[]; land: number[] | null; s: ShotParams }
+/**
+ * The shaded landing-dispersion area: an ellipse centered at `c`, `w` meters
+ * across and `l` meters along the shot heading (both full widths).
+ */
+export interface Spread { c: number[]; w: number; l: number }
+
+/** Preview geometry: line points, first-contact point and dispersion (null for putts), and the params used. */
+export interface Preview { pts: THREE.Vector3[]; land: number[] | null; spread: Spread | null; s: ShotParams }
 
 /**
  * Builds the shot preview for a perfect strike. Full shots trace the simulated
@@ -96,19 +102,51 @@ export function preview(g: GS): Preview {
   const ball = active(g).ball
   const s = shotParams(g)
   const b = launchShot(ball, s)
-  if (g.club === PUTTER) return { pts: puttAimLine(g, ball, s.heading, b), land: null, s }
+  if (g.club === PUTTER) return { pts: puttAimLine(g, ball, s.heading, b), land: null, spread: null, s }
   const pts = flightLine(g, b)
-  return { pts, land: [...b.p], s }
+  const land = [...b.p]
+  return { pts, land, spread: dispersion(g, ball, land, s), s }
 }
 
+/** Timing errors (as fractions of METER.spreadErr beyond the perfect zone) sampled for the dispersion area. */
+const SPREAD_SAMPLES = [-1, -0.5, 0.5, 1]
+
+/** Extra margin (m) added around the simulated landing spread. */
+const SPREAD_PAD = 1.5
+
 /**
- * Size of the shaded landing-dispersion ellipse: [width, length] in meters.
- * This is a rough visual guide scaled from club carry and lie, not simulated.
+ * Landing-dispersion area: simulates the same shot struck early and late by up
+ * to METER.spreadErr beyond the perfect zone (with the lie's and equipment's
+ * real penalties) and fits an ellipse around those first-contact points and the
+ * perfect one.
  */
-export function dispersionSize(club: number, lie: Lie): [number, number] {
-  const carry = CLUBS[club].carry
-  const lieScale = lie === 'rough' ? 1.5 : lie === 'sand' ? 2 : 1
-  return [Math.max(2.5, carry * 0.06 * lieScale), Math.max(2, carry * 0.035)]
+function dispersion(g: GS, ball: number[], land: number[], perfect: ShotParams): Spread {
+  const [fx, fz] = dirOf(perfect.heading)
+  const rx = -fz, rz = fx // to the right of the heading
+  let minA = 0, maxA = 0, minL = 0, maxL = 0
+  for (const k of SPREAD_SAMPLES) {
+    const err = Math.sign(k) * (perfect.zone + Math.abs(k) * METER.spreadErr)
+    const p = landingPoint(g.hole, launchShot(ball, shotParams(g, err)))
+    const dx = p[0] - land[0], dz = p[2] - land[2]
+    const a = dx * fx + dz * fz, l = dx * rx + dz * rz
+    minA = Math.min(minA, a); maxA = Math.max(maxA, a)
+    minL = Math.min(minL, l); maxL = Math.max(maxL, l)
+  }
+  const ca = (minA + maxA) / 2, cl = (minL + maxL) / 2
+  const cx = land[0] + fx * ca + rx * cl, cz = land[2] + fz * ca + rz * cl
+  return {
+    c: [cx, g.hole.height(cx, cz), cz],
+    w: maxL - minL + SPREAD_PAD * 2,
+    l: maxA - minA + SPREAD_PAD * 2,
+  }
+}
+
+/** Simulates a ball to its first ground contact and returns that point. */
+function landingPoint(hole: Hole, b: Ball): number[] {
+  for (let i = 0; i < 2400; i++) {
+    if (step(b, hole, hole.wind) || b.mode !== 'air') break
+  }
+  return [...b.p]
 }
 
 /** Short straight line hugging the green in the aim direction (at most 5 m). */

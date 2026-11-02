@@ -181,15 +181,23 @@ function RewardsPanel({ result, rewards, coins }: { result: RoundResult; rewards
 
 /** Controls and simplified rules, with buttons to save and exit or abandon the round. */
 export function PauseOverlay({ onSaveExit, onQuit }: { onSaveExit: () => void; onQuit: () => void }) {
-  return <div className="overlay"><div className="glass">
+  return <div className="overlay"><div className="glass pause">
     <h2 style={{ marginTop: 0 }}>Paused</h2>
-    <kbd>A</kbd>/<kbd>D</kbd> aim (hold Shift for fine) · <kbd>W</kbd>/<kbd>S</kbd> power or putt pace · <kbd>Q</kbd>/<kbd>E</kbd> draw / fade · <kbd>R</kbd> straight<br />
+    <kbd>A</kbd>/<kbd>D</kbd> aim (hold Shift for fine) · <kbd>W</kbd>/<kbd>S</kbd> power or putt pace (hold to speed up) · <kbd>Q</kbd>/<kbd>E</kbd> draw / fade · <kbd>R</kbd> straight<br />
     <kbd>←</kbd>/<kbd>→</kbd> club · <kbd>Space</kbd> start swing, <kbd>Space</kbd> again in the green zone · <kbd>Space</kbd> in flight fast-forwards<br />
-    <kbd>Space</kbd> during {AI_SHORT}'s turn skips his shot (same result) · <kbd>C</kbd> camera · <kbd>Tab</kbd> overhead · <kbd>Esc</kbd> resume
+    <kbd>Space</kbd> during {AI_SHORT}'s turn skips his shot (same result) · <kbd>U</kbd> declare unplayable · <kbd>Esc</kbd> resume<br />
+    <kbd>C</kbd> cycles cameras: Behind ball (chase, then TV landing cam) · High · Ball follow (chase to rest) · Landing (view from the target). <kbd>Tab</kbd> toggles the overhead view.
     <h3>Simplified rules</h3>
     <div style={{ color: 'var(--dim)' }}>
-      Water / out of bounds: +1 stroke, replay from the previous spot. Max {MAX_STROKES} strokes per hole.
-      The red ring marks first landing — the ball will still bounce and roll.
+      Out of bounds: +1 stroke, replay from the previous spot.
+      Water, canyons and the cliffs/beach are penalty areas: +1 stroke, then drop about two club-lengths inside where the ball
+      went in (approximated along a straight line back toward where it was hit), or replay from the previous spot.
+      Unplayable lie (<kbd>U</kbd>, not on the tee or green): +1 stroke, then drop back on the line from the pin (out of sand when possible),
+      or replay from the previous spot. Max {MAX_STROKES} strokes per hole.
+      The red ring marks first landing; the ball will still bounce and roll. The shaded area shows where strikes
+      mistimed just outside the green zone would land.
+      Putts: the pace setting is the distance on level ground, already allowing for fringe or rough on the line; slopes
+      (shown as uphill/downhill on the shot bar) and break are yours to read. Wind does not affect putts.
       Course is a stylized, approximate take on Torrey Pines South.
     </div>
     <h3>Playing {AI_NAME}</h3>

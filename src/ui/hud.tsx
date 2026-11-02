@@ -8,15 +8,16 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { nineHoles } from '../course/holes'
-import { AI_LABEL, AI_LEVELS, AI_SHORT, CLUBS, CONSUMABLES, PUTTER, YD } from '../config'
+import { AI_LABEL, AI_LEVELS, AI_SHORT, CLUBS, CONSUMABLES, PUTTER, ROLL, YD } from '../config'
 import { distXZ, opponent, player, OPPONENT, PLAYER, type GS, type GolferState } from '../game/game'
-import { lieCarry, shotMods, shotParams } from '../game/shot'
+import { lieCarry, shotMods, shotParams, type Preview } from '../game/shot'
+import { G, ROLL_SLOPE } from '../sim/sim'
 import { armedBoost } from '../game/boosts'
 import { useMinimap } from './minimap'
 import { CoinCounter, CoinPopups, POPUP_MS } from './coins'
 
 const LIE_COL: Record<string, string> = {
-  tee: '#7CFFB2', fairway: '#7CFFB2', rough: '#ffb36b', sand: '#f0e0b4', green: '#4fe36a', water: '#8fd3ff', oob: '#ff8a7a',
+  tee: '#7CFFB2', fairway: '#7CFFB2', rough: '#ffb36b', sand: '#f0e0b4', green: '#4fe36a', water: '#8fd3ff', hazard: '#d9a66b', oob: '#ff8a7a',
 }
 
 /** How long (ms) a banner stays up, unless it is waiting for Space at the end of a hole. */
@@ -68,7 +69,7 @@ function hudInfo(g: GS) {
 type HudInfo = ReturnType<typeof hudInfo>
 
 /** The full HUD. */
-export function Hud({ g }: { g: GS }) {
+export function Hud({ g, pv }: { g: GS; pv: Preview | null }) {
   useEveryFrame()
   const info = hudInfo(g)
   const showShotBar = isPlaying(g, PLAYER) && g.phase !== 'ai'
@@ -87,12 +88,13 @@ export function Hud({ g }: { g: GS }) {
     <div className="right">
       <CoinCounter coins={g.coins} />
       <WindCompass info={info} />
-      <MinimapPanel g={g} info={info} />
+      <MinimapPanel g={g} info={info} pv={pv} />
     </div>
 
     {showShotBar && <ShotBar g={g} info={info} />}
     {showShotBar && <BoostSlots g={g} />}
     {g.phase === 'swing' && <SwingMeter g={g} />}
+    {g.phase === 'drop' && g.relief && <ReliefPanel g={g} />}
     {g.phase === 'intro' && <div className="skip">Press Space to tee off</div>}
     {g.phase === 'flight' && !aiPlaying && <div className="skip">Space to fast-forward</div>}
     {aiPlaying && <div className="skip">Space to skip {AI_SHORT}'s shot</div>}
@@ -119,7 +121,9 @@ function HoleCard({ g, info }: { g: GS; info: HudInfo }) {
       <div className="stats">
         <div className="stat">
           <div className="label">Elev</div>
-          <div className="v">{elev >= 0 ? '↑' : '↓'}{Math.abs(elev).toFixed(0)}<small>yds</small></div>
+          <div className="v">{elev >= 0 ? '↑' : '↓'}{Math.abs(elev) < 3
+            ? <>{(Math.abs(elev) * 3).toFixed(1)}<small>ft</small></>
+            : <>{Math.abs(elev).toFixed(0)}<small>yds</small></>}</div>
         </div>
         <div className="stat">
           <div className="label">Stroke</div>
@@ -175,11 +179,12 @@ function WindCompass({ info }: { info: HudInfo }) {
 
 /**
  * Top-down hole map with the ball, pin, shot trail, and (while planning a full
- * shot) a straight line out to the nominal carry distance.
+ * shot) the simulated preview flight out to its first-contact point, so it
+ * includes shape, wind, lie and equipment exactly like the 3D preview.
  */
-function MinimapPanel({ g, info }: { g: GS; info: HudInfo }) {
+function MinimapPanel({ g, info, pv }: { g: GS; info: HudInfo; pv: Preview | null }) {
   const mini = useMinimap(info.h)
-  const { p, h, carry } = info
+  const { p, h } = info
   const [bx, bz] = mini.map(p[0], p[2])
   const [px, pz] = mini.map(h.pin[0], h.pin[1])
   const planning = g.phase === 'plan' || g.phase === 'swing'
@@ -187,14 +192,12 @@ function MinimapPanel({ g, info }: { g: GS; info: HudInfo }) {
   const aiVisible = !ai.holed && (ai.strokes > 0 || g.turn === OPPONENT)
   const aiPos = ballOf(g, OPPONENT)
   const [ax, az] = mini.map(aiPos[0], aiPos[2])
-  const youBall = player(g).ball
 
-  const aimLine = () => {
-    const dx = -Math.sin(g.heading), dz = Math.cos(g.heading)
-    const L = carry * YD
-    const [ex, ez] = mini.map(youBall[0] + dx * L, youBall[2] + dz * L)
+  const previewPath = (land: number[]) => {
+    const pts = pv!.pts.map(v => mini.map(v.x, v.z).join(',')).join(' ')
+    const [ex, ez] = mini.map(land[0], land[2])
     return <>
-      <line x1={bx} y1={bz} x2={ex} y2={ez} stroke="#ffd23f" strokeWidth="1.5" strokeDasharray="3 2" />
+      <polyline points={pts} fill="none" stroke="#ffd23f" strokeWidth="1.5" strokeDasharray="3 2" />
       <circle cx={ex} cy={ez} r="3" fill="none" stroke="#ff4d6d" strokeWidth="1.5" />
     </>
   }
@@ -204,8 +207,9 @@ function MinimapPanel({ g, info }: { g: GS; info: HudInfo }) {
     <div style={{ position: 'relative' }}>
       <img src={mini.url} style={{ width: '100%', display: 'block', borderRadius: 10 }} />
       <svg viewBox={`0 0 ${mini.Wc} ${mini.Hc}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }}>
-        {planning && g.turn === PLAYER && g.club !== PUTTER && aimLine()}
+        {planning && g.turn === PLAYER && pv?.land && previewPath(pv.land)}
         {g.trail.length > 1 && <polyline points={trailPoints()} fill="none" stroke="#fff" strokeWidth="1" opacity=".7" />}
+        <circle cx={px} cy={pz} r="1.6" fill="#111" />
         <line x1={px} y1={pz} x2={px} y2={pz - 8} stroke="#fff" strokeWidth="1" />
         <path d={`M${px},${pz - 8} l5,1.5 l-5,1.5z`} fill="#ff3b3b" />
         {aiVisible && <circle cx={ax} cy={az} r="3.2" fill="#ff3b3b" stroke="#111" strokeWidth="1" />}
@@ -226,7 +230,10 @@ function ShotBar({ g, info }: { g: GS; info: HudInfo }) {
     </div>
     <PowerReadout g={g} putting={putting} carry={carry} />
     {putting
-      ? <div style={{ fontSize: 12, color: 'var(--dim)', maxWidth: 160 }}>Arrows show downhill. Brighter/warmer = steeper.</div>
+      ? <div style={{ fontSize: 12, color: 'var(--dim)', maxWidth: 190 }}>
+          <PuttSlope g={g} />
+          Arrows show downhill. Brighter/warmer = steeper. Wind doesn't affect putts.
+        </div>
       : <ShapeReadout curve={g.curve} />}
   </div>
 }
@@ -242,6 +249,27 @@ function PowerReadout({ g, putting, carry }: { g: GS; putting: boolean; carry: n
       <span style={{ fontSize: 12, color: 'var(--dim)', marginLeft: 8 }}>{putting ? '' : `${carry.toFixed(0)} yd carry`}</span>
     </div>
     <div className="bar" style={{ marginTop: 6 }}><div className="fill" style={{ width: `${fill}%` }} /></div>
+  </div>
+}
+
+/**
+ * Uphill/downhill from the ball to the hole, and roughly how far the putt
+ * "plays" on level ground: a grade adds or removes slope gravity on top of the
+ * green's rolling friction. Pace through fringe or rough is already handled by
+ * the putt distance itself, so only elevation is shown here.
+ */
+function PuttSlope({ g }: { g: GS }) {
+  const h = g.hole
+  const ball = player(g).ball
+  const d = distXZ(ball, h.pin[0], h.pin[1])
+  if (d < 0.5) return null
+  const rise = h.height(h.pin[0], h.pin[1]) - ball[1]
+  const grade = rise / d
+  const plays = d * Math.max(0.3, 1 + G * ROLL_SLOPE * grade / ROLL.green)
+  const inches = Math.abs(rise) * 39.37
+  const dir = Math.abs(rise) < 0.02 ? 'Level' : rise > 0 ? `Uphill ${inches.toFixed(0)} in` : `Downhill ${inches.toFixed(0)} in`
+  return <div style={{ color: 'var(--ink)', marginBottom: 4 }}>
+    {dir} · plays like ~{(plays / YD * 3).toFixed(0)} ft
   </div>
 }
 
@@ -276,6 +304,17 @@ function SwingMeter({ g }: { g: GS }) {
       <span className="label" style={{ color: '#2dff8f' }}>Perfect</span>
       <span className="label">Late · push</span>
     </div>
+  </div>
+}
+
+/** Penalty relief choices (phase 'drop'): keys 1/2, or Space for the first option. */
+function ReliefPanel({ g }: { g: GS }) {
+  const r = g.relief!
+  return <div className="glass meter" style={{ pointerEvents: 'none' }}>
+    <div className="label" style={{ textAlign: 'center', marginBottom: 8 }}>{r.title} · choose relief</div>
+    {r.options.map((o, i) => <div key={i} style={{ margin: '4px 0' }}>
+      <kbd>{i + 1}</kbd> {o.label}{i === 0 ? <span style={{ color: 'var(--dim)' }}> (Space)</span> : null}
+    </div>)}
   </div>
 }
 
@@ -399,7 +438,7 @@ function KeysHint() {
   return <div className="glass keys">
     <kbd>A</kbd><kbd>D</kbd> aim <kbd>W</kbd><kbd>S</kbd> power <kbd>Q</kbd><kbd>E</kbd> shape <kbd>R</kbd> straight<br />
     <kbd>←</kbd><kbd>→</kbd> club <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> boost <kbd>Space</kbd> swing<br />
-    <kbd>C</kbd> cam <kbd>Tab</kbd> overhead <kbd>Esc</kbd> help
+    <kbd>U</kbd> unplayable <kbd>C</kbd> cam <kbd>Tab</kbd> overhead <kbd>Esc</kbd> pause
   </div>
 }
 

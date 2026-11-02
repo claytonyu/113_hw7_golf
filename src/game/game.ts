@@ -12,8 +12,9 @@
  * it directly; React re-renders by polling it (see ui/play.tsx).
  */
 import { HOLES } from '../course/holes'
-import { buildHole, headingTo, type Hole } from '../course/course'
-import { CLUBS, PUTTER, LIE_CARRY, MAX_STROKES, YD, AI_NAME, AI_SHORT, type ClubMods, type ConsumableId, type Difficulty } from '../config'
+import { buildHole, headingTo, outOfPlay, type Hole } from '../course/course'
+import { CLUBS, PUTTER, LIE_CARRY, MAX_STROKES, YD, AI_NAME, AI_SHORT, AIM_DOWN_LEG_DIST, type ClubMods, type ConsumableId, type Difficulty } from '../config'
+import { expectedStrokes } from './ai'
 import { STOCK_MODS, effectiveCarries } from '../progress/equipment'
 import { payHole } from '../progress/rewards'
 import { saveRound } from '../progress/roundSave'
@@ -26,7 +27,13 @@ import { sfx } from '../sound'
  *                      -> ai (opponent lining up) -> flight ...
  * -> holed (both golfers finished the hole).
  */
-export type Phase = 'intro' | 'plan' | 'swing' | 'ai' | 'flight' | 'holed'
+export type Phase = 'intro' | 'plan' | 'swing' | 'ai' | 'flight' | 'drop' | 'holed'
+
+/** One way to continue after a penalty: where the ball is dropped. */
+export interface ReliefOption { label: string; pos: number[] }
+
+/** A pending penalty choice (phase 'drop'): the player picks an option with 1/2 or Space. */
+export interface Relief { title: string; options: ReliefOption[] }
 
 /** A short-lived spark of sand, grass or water spray. */
 export interface Particle { p: number[]; v: number[]; life: number; max: number; c: [number, number, number] }
@@ -117,9 +124,14 @@ export interface GS extends ShotPlan {
   contactT: number         // flight time to that contact
   final: number[] | null   // predicted resting position
 
+  // penalty relief waiting for the player's choice (phase 'drop')
+  relief: Relief | null
+
   // camera
-  cam: number             // 0 = close behind-ball view, 1 = high view
+  cam: number             // camera view cycled with C (see CAMERAS in render/camera.ts)
   overhead: boolean
+
+  paused: boolean         // Escape: the frame loop and gameplay keys stop
 
   // feedback and effects
   feedback: string        // toast message
@@ -167,8 +179,8 @@ export const distXZ = (a: number[], x: number, z: number) => Math.hypot(a[0] - x
 /** Length of the hole intro flyover, in seconds. */
 export const INTRO = 4.2
 
-/** Tee shots on holes longer than this (meters) aim down the first leg instead of at the pin. */
-const AIM_DOWN_LEG_DIST = 260
+/** A ball within this distance (m) of the tee origin is still on the tee. */
+const ON_TEE = 8
 
 /** Score names relative to par, with banner colors. */
 const SCORE_NAMES: Record<string, [string, string]> = {
@@ -217,7 +229,8 @@ export function createState(nine: number, difficulty: Difficulty, setup: RoundSe
     shotStart: [0, 0, 0], sim: null, acc: 0, fast: false, lastContacts: 0,
     meterT: 0, meterOn: false,
     contact: null, contactT: 0, final: null,
-    cam: 0, overhead: false,
+    relief: null,
+    cam: 0, overhead: false, paused: false,
     feedback: '', feedbackAt: 0, banner: null, streak: 0, strikeAt: 0, confettiAt: 0, trail: [], fx: [],
   }
 }
@@ -247,6 +260,7 @@ export function startHole(g: GS, idx: number) {
   }
   g.turn = g.honor
   g.ai = null
+  g.relief = null
   g.boostSlot = null
   g.sim = null
   g.trail = []
@@ -291,7 +305,8 @@ export function prepShot(g: GS) {
   const d = distXZ(golfer.ball, h.pin[0], h.pin[1])
 
   g.heading = headingTo(golfer.ball, h.pin[0], h.pin[1])
-  if (d > AIM_DOWN_LEG_DIST && golfer.strokes === 0) {
+  // Also after a penalty that sends the ball back to the tee.
+  if (d > AIM_DOWN_LEG_DIST && distXZ(golfer.ball, h.tee[0], h.tee[1]) < ON_TEE) {
     const corner = h.path[1]
     g.heading = headingTo(golfer.ball, corner[0], corner[1])
   }
@@ -325,15 +340,27 @@ function formatRemaining(yds: number) {
   return yds < 30 ? `${(yds * 3).toFixed(0)} ft` : `${yds.toFixed(0)} yds`
 }
 
-/** Called when the simulated ball stops. Scores, penalizes or settles the shot, then passes the turn. */
+/**
+ * Called when the simulated ball stops. Scores, penalizes or settles the shot,
+ * then passes the turn. A ball in a penalty area waits for the player's relief
+ * choice first (phase 'drop').
+ */
 export function finishShot(g: GS) {
   const b = g.sim!
   const golfer = active(g)
-  if (b.mode === 'holed') holeOut(g, golfer, b)
-  else if (b.mode === 'water' || b.mode === 'oob') applyPenalty(g, golfer, b.mode)
-  else settleBall(g, golfer, b)
-
   g.sim = null
+  if (b.mode === 'holed') holeOut(g, golfer, b)
+  else if (b.mode === 'oob') strokeAndDistance(g, golfer)
+  else if (b.mode === 'water') {
+    penaltyArea(g, golfer, b)
+    if (g.phase === 'drop') { saveRound(g); return }
+  }
+  else settleBall(g, golfer, b)
+  endTurn(g, golfer)
+}
+
+/** After a golfer's stroke is resolved: picks up at the stroke limit, passes the turn and saves. */
+function endTurn(g: GS, golfer: GolferState) {
   if (!golfer.holed && golfer.strokes >= MAX_STROKES) pickUp(g, golfer)
   nextTurn(g)
   saveRound(g) // between shots: the next golfer is up, or the hole is complete
@@ -400,14 +427,126 @@ function completeHole(g: GS) {
   g.holedAt = performance.now()
 }
 
-/** Water or out of bounds: one penalty stroke and replay from the previous spot (stroke and distance). */
-function applyPenalty(g: GS, golfer: GolferState, mode: 'water' | 'oob') {
+/** Out of bounds: one penalty stroke and replay from the previous spot (stroke and distance). */
+function strokeAndDistance(g: GS, golfer: GolferState) {
   golfer.strokes++
   golfer.ball = [...golfer.lastPos]
   const sub = '+1 stroke · replay from previous spot'
-  showBanner(g, mode === 'water' ? 'SPLASH' : 'OUT OF BOUNDS', '#8fd3ff', golfer.isAI ? `${AI_SHORT} · ${sub}` : sub)
+  showBanner(g, 'OUT OF BOUNDS', '#8fd3ff', golfer.isAI ? `${AI_SHORT} · ${sub}` : sub)
   setFeedback(g, about(golfer, 'Penalty stroke'))
-  if (mode === 'oob') sfx.groan()
+  sfx.groan()
+}
+
+// ---------- penalty relief ----------
+
+/** Is (x, z) somewhere a ball can be played from? */
+const playable = (h: Hole, x: number, z: number) => !outOfPlay(h.lie(x, z))
+
+/** A ground point at (x, z) on the terrain. */
+const onGround = (h: Hole, x: number, z: number) => [x, h.height(x, z), z]
+
+/** How far (m) inside the penalty-area margin a relief drop lands (about two club-lengths). */
+const DROP_INSET = 2
+
+/**
+ * Where the ball last crossed into the penalty area, approximated by walking
+ * back from where it ended toward where it was struck, then DROP_INSET meters
+ * further back so the drop is clear of the margin.
+ */
+function entryDrop(h: Hole, from: number[], end: number[]): number[] {
+  const dx = from[0] - end[0], dz = from[2] - end[2]
+  const L = Math.hypot(dx, dz) || 1
+  for (let s = 0; s <= L; s += 0.5) {
+    const x = end[0] + dx / L * s, z = end[2] + dz / L * s
+    if (!playable(h, x, z)) continue
+    const back = Math.min(L, s + DROP_INSET)
+    const bx = end[0] + dx / L * back, bz = end[2] + dz / L * back
+    return playable(h, bx, bz) ? onGround(h, bx, bz) : onGround(h, x, z)
+  }
+  return [...from]
+}
+
+/**
+ * Unplayable lie, back on the line: the first playable spot at least 3 m
+ * behind the ball on the line from the pin through the ball, avoiding sand
+ * when possible (simplified rule).
+ */
+function backOnLine(h: Hole, ball: number[]): number[] {
+  const dx = ball[0] - h.pin[0], dz = ball[2] - h.pin[1]
+  const L = Math.hypot(dx, dz) || 1
+  let firstPlayable: number[] | null = null
+  for (let s = 3; s <= 60; s += 0.5) {
+    const x = ball[0] + dx / L * s, z = ball[2] + dz / L * s
+    if (!playable(h, x, z)) continue
+    if (h.lie(x, z) !== 'sand') return onGround(h, x, z)
+    firstPlayable ??= onGround(h, x, z)
+  }
+  return firstPlayable ?? [...ball]
+}
+
+/** Offers the relief options. The AI picks the one with fewer expected strokes; the player chooses (phase 'drop'). */
+function offerRelief(g: GS, golfer: GolferState, relief: Relief) {
+  if (golfer.strokes >= MAX_STROKES) return // the golfer picks up instead (see endTurn)
+  if (golfer.isAI) {
+    const best = relief.options.reduce((a, b) => (expectedStrokes(g.hole, b.pos) < expectedStrokes(g.hole, a.pos) ? b : a))
+    golfer.ball = [...best.pos]
+    setFeedback(g, `${AI_SHORT}: ${best.label.toLowerCase()}`)
+    return
+  }
+  g.relief = relief
+  g.phase = 'drop'
+  g.overhead = false
+}
+
+/** Ball in water or a dry penalty area: +1 stroke, then drop near where it went in, or replay. */
+function penaltyArea(g: GS, golfer: GolferState, b: Ball) {
+  const h = g.hole
+  golfer.strokes++
+  golfer.ball = [...b.p]
+  const dry = h.lie(b.p[0], b.p[2]) === 'hazard'
+  const sub = golfer.isAI ? `${AI_SHORT} · +1 stroke` : '+1 stroke · choose your relief'
+  showBanner(g, dry ? 'PENALTY AREA' : 'SPLASH', '#8fd3ff', sub)
+  setFeedback(g, about(golfer, 'Penalty stroke'))
+  if (dry) sfx.groan()
+  offerRelief(g, golfer, {
+    title: dry ? 'Penalty area · +1 stroke' : 'Water · +1 stroke',
+    options: [
+      { label: 'Drop near where it went in', pos: entryDrop(h, g.shotStart, b.p) },
+      { label: 'Replay from the previous spot', pos: [...golfer.lastPos] },
+    ],
+  })
+}
+
+/** The player declares the ball unplayable (U): +1 stroke, then drop back on the line or replay. */
+export function declareUnplayable(g: GS) {
+  const golfer = active(g)
+  const h = g.hole
+  const lie = h.lie(golfer.ball[0], golfer.ball[2])
+  if (golfer.isAI || g.phase !== 'plan' || lie === 'green' || lie === 'tee') return
+  golfer.strokes++
+  showBanner(g, 'UNPLAYABLE', '#ffb36b', '+1 stroke · choose your relief')
+  g.boostSlot = null // an armed boost stays in the bag
+  offerRelief(g, golfer, {
+    title: 'Unplayable lie · +1 stroke',
+    options: [
+      { label: 'Drop back on the line from the pin', pos: backOnLine(h, golfer.ball) },
+      { label: 'Replay from the previous spot', pos: [...golfer.lastPos] },
+    ],
+  })
+  if ((g.phase as Phase) === 'drop') saveRound(g) // offerRelief changes the phase
+  else endTurn(g, golfer) // reached the stroke limit
+}
+
+/** Applies relief option `i` for the player and continues the hole. */
+export function chooseRelief(g: GS, i: number) {
+  const opt = g.relief?.options[i]
+  if (g.phase !== 'drop' || !opt) return
+  const golfer = active(g)
+  golfer.ball = [...opt.pos]
+  g.relief = null
+  setFeedback(g, opt.label)
+  sfx.click()
+  endTurn(g, golfer)
 }
 
 /** Ball came to rest in play: moves it there and reports the shot distance, distance left and lie. */

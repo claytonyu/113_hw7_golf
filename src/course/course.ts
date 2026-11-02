@@ -6,10 +6,17 @@
  * Coordinates: x/z is the ground plane, y is up. Every hole starts at the
  * origin and initially plays toward +z.
  */
-import { YD } from '../config'
-import type { HoleDef } from './holes'
+import { OCEAN_Y, YD } from '../config'
+import type { Canyon, HoleDef } from './holes'
 
-export type Lie = 'tee' | 'fairway' | 'rough' | 'sand' | 'green' | 'water' | 'oob'
+/**
+ * Surface types. 'water' is ocean or pond; 'hazard' is a dry penalty area
+ * (canyon, cliff face or beach). Both are penalty areas with a relief drop.
+ */
+export type Lie = 'tee' | 'fairway' | 'rough' | 'sand' | 'green' | 'water' | 'hazard' | 'oob'
+
+/** Lies a ball cannot be played from. */
+export const outOfPlay = (lie: Lie) => lie === 'water' || lie === 'hazard' || lie === 'oob'
 
 /** A circle on the ground: [x, z, radius]. */
 type Circle = [number, number, number]
@@ -25,6 +32,10 @@ export interface Hole {
   ponds: Circle[]
   wind: [number, number, number] // world-space wind velocity (m/s)
   project(x: number, z: number): { along: number; lat: number; dist: number }
+  /** Distance from the green center, scaled so that values below def.greenR are on the (possibly oval) green. */
+  greenDist(x: number, z: number): number
+  /** Fairway half-width (m) at distance `along` down the hole. */
+  halfWidth(along: number): number
   height(x: number, z: number): number
   lie(x: number, z: number): Lie
 }
@@ -150,34 +161,76 @@ interface HoleShape {
   bunkers: Circle[]
   ponds: Circle[]
   project: (x: number, z: number) => { along: number; lat: number; dist: number }
+  greenDist: (x: number, z: number) => number
+  halfWidth: (along: number) => number
 }
+
+/** Canyon depth (m) below the surrounding ground. */
+const CANYON_DEPTH = 7
+
+/** Ground elevation (before bumps) at fraction `f` of the hole, following the hole's elevation profile. */
+function baseElevation(def: HoleDef, f: number) {
+  const pts: [number, number][] = [[0, 0], ...(def.profile ?? []), [1, def.elev]]
+  for (let i = 1; i < pts.length; i++) {
+    const [f1, h1] = pts[i]
+    if (f <= f1) {
+      const [f0, h0] = pts[i - 1]
+      return h0 + (h1 - h0) * smooth(f0, f1, f)
+    }
+  }
+  return def.elev
+}
+
+/** How deep inside a canyon band a point is: 1 well inside, 0 outside, smooth at the edges. */
+function canyonDepthFactor(c: Canyon, len: number, along: number, lat: number) {
+  const half = c.width / 2
+  const d = Math.abs(along - c.at * len)
+  return smooth(half + 1, half - 4, d) * smooth(c.from - 1, c.from + 4, lat) * smooth(c.to + 1, c.to - 4, lat)
+}
+
+/** True when the point lies inside a canyon's penalty-area band. */
+function inCanyon(c: Canyon, len: number, along: number, lat: number) {
+  return Math.abs(along - c.at * len) < c.width / 2 && lat > c.from && lat < c.to
+}
+
+/** Signed distance past the cliff edge on the ocean side (negative = inland of it). */
+function pastCliff(def: HoleDef, lat: number) {
+  return def.ocean ? lat * def.ocean.side - def.ocean.dist : -Infinity
+}
+
+/** Width of the cliff top (m) between the edge and the start of the visible rock face. */
+export const CLIFF_LIP = 1
 
 /**
  * Terrain height at (x, z). Layers, in order:
- * gentle tee-to-green elevation change, rolling bumps (stronger off the fairway),
- * banks rising away from the fairway, a flat tilted green, bunker and pond
- * depressions, and finally the drop to the ocean.
+ * the hole's tee-to-green elevation profile, rolling bumps (stronger off the fairway),
+ * banks rising away from the fairway, a flat tilted green, bunker, pond and
+ * canyon depressions, and finally the drop to the ocean.
  */
 function heightAt(shape: HoleShape, x: number, z: number): number {
   const { def, len, green, bunkers, ponds } = shape
   const p = shape.project(x, z)
   const n = def.num // per-hole phase so every hole's bumps differ
+  const fw = shape.halfWidth(p.along) * 2 // local fairway width
 
   // Elevation change plus undulation. Bumps are larger the further you are from the centerline.
   const progress = clamp(p.along / len, 0, 1)
-  const offFairway = smooth(def.width * 0.4, def.width * 1.5, p.dist)
+  const offFairway = smooth(fw * 0.4, fw * 1.5, p.dist)
   const bumpScale = 0.6 + 1.6 * offFairway
-  let h = def.elev * progress
+  let h = baseElevation(def, progress)
     + bumpScale * Math.sin(x * 0.021 + n) * Math.cos(z * 0.017 + n * 2)
     + 0.5 * Math.sin(x * 0.05 + z * 0.04 + n)
 
   // Banks rise up to 3 m away from the fairway.
-  h += 3 * smooth(def.width, def.width * 3, p.dist)
+  h += 3 * smooth(fw, fw * 3, p.dist)
 
   // Blend into a flat, tilted green plane near the green.
-  const distToGreen = Math.hypot(x - green[0], z - green[1])
+  const distToGreen = shape.greenDist(x, z)
   const greenHeight = def.elev + def.slope[0] * (x - green[0]) + def.slope[1] * (z - green[1])
   h += (greenHeight - h) * smooth(def.greenR + 10, def.greenR, distToGreen)
+
+  // Canyons cut steep-sided ditches across the hole.
+  for (const c of def.canyons ?? []) h -= CANYON_DEPTH * canyonDepthFactor(c, len, p.along, p.lat)
 
   // Bunkers are shallow 0.7 m dips; ponds are 2.5 m deep.
   for (const [bx, bz, r] of bunkers) {
@@ -190,31 +243,61 @@ function heightAt(shape: HoleShape, x: number, z: number): number {
   }
 
   // Cliff: past `ocean.dist` on the ocean side, the ground drops to -24 m over 14 m.
-  if (def.ocean) {
-    const towardOcean = p.lat * def.ocean.side
-    if (towardOcean > def.ocean.dist) h += (-24 - h) * smooth(def.ocean.dist, def.ocean.dist + 14, towardOcean)
-  }
+  const past = pastCliff(def, p.lat)
+  if (past > 0) h += (-24 - h) * smooth(0, 14, past)
   return h
 }
 
-/** Surface type at (x, z). Checks run in priority order: water, out of bounds, green, sand, tee, fairway, rough. */
+/**
+ * Surface type at (x, z). Checks run in priority order: ocean side (water below
+ * sea level, otherwise cliff/beach penalty area), ponds, out of bounds, green,
+ * sand, canyons, tee, fairway, rough.
+ */
 function lieAt(shape: HoleShape, x: number, z: number): Lie {
-  const { def, len, green, bunkers, ponds } = shape
+  const { def, len, bunkers, ponds } = shape
   const p = shape.project(x, z)
 
-  if (def.ocean && p.lat * def.ocean.side > def.ocean.dist + 4) return 'water'
+  // The cliff face and beach are a dry penalty area; only ground under the ocean surface is water.
+  if (pastCliff(def, p.lat) > CLIFF_LIP) return heightAt(shape, x, z) < OCEAN_Y ? 'water' : 'hazard'
   for (const [px, pz, r] of ponds) if (Math.hypot(x - px, z - pz) < r) return 'water'
   if (p.dist > 95 || p.along < -40 || p.along > len + 60) return 'oob'
-  if (Math.hypot(x - green[0], z - green[1]) < def.greenR) return 'green'
+  if (shape.greenDist(x, z) < def.greenR) return 'green'
   for (const [bx, bz, r] of bunkers) if (Math.hypot(x - bx, z - bz) < r) return 'sand'
+  for (const c of def.canyons ?? []) if (inCanyon(c, len, p.along, p.lat)) return 'hazard'
   if (p.along < 6 && p.along > -6 && p.dist < 5) return 'tee'
 
-  // Par 3s only have fairway in the last 40 m; longer holes start fairway 95 m out.
-  // The fairway narrows by 30% over the final 60 m before the green.
-  const fairwayStart = def.par === 3 ? len - 40 : 95
-  const halfWidth = def.width / 2 * (1 - 0.3 * smooth(len - 60, len, p.along))
-  if (p.dist < halfWidth && p.along > fairwayStart) return 'fairway'
+  // Default fairway start: par 3s only have fairway in the last 40 m; longer holes start 95 m out.
+  const fairwayStart = def.fairwayStart !== undefined ? def.fairwayStart * len : def.par === 3 ? len - 40 : 95
+  if (p.dist < shape.halfWidth(p.along) && p.along > fairwayStart) return 'fairway'
   return 'rough'
+}
+
+/**
+ * Fairway half-width at `along`: the hole's width, changed around each pinch
+ * point (a bell curve about 35 m wide), and narrowing 30% over the final 60 m.
+ */
+function fairwayHalfWidth(def: HoleDef, len: number, along: number) {
+  let k = 1
+  for (const [f, mul] of def.pinches ?? []) k += (mul - 1) * Math.exp(-(((along - f * len) / 35) ** 2))
+  return def.width / 2 * k * (1 - 0.3 * smooth(len - 60, len, along))
+}
+
+/**
+ * Scaled distance from the green center for an oval green. The oval's length
+ * runs along the final leg, rotated by the shape's angle.
+ */
+function makeGreenDist(def: HoleDef, green: [number, number], lastLeg: [number, number]) {
+  const [lengthMul, widthMul, angleDeg] = def.greenShape ?? [1, 1, 0]
+  const a = angleDeg * Math.PI / 180
+  const c = Math.cos(a), s = Math.sin(a)
+  // Long axis: the last leg's direction rotated by the angle (positive = clockwise from above, like headings).
+  const ux = lastLeg[0] * c - lastLeg[1] * s, uz = lastLeg[0] * s + lastLeg[1] * c
+  return (x: number, z: number) => {
+    const dx = x - green[0], dz = z - green[1]
+    const along = dx * ux + dz * uz
+    const across = -dx * uz + dz * ux
+    return Math.hypot(along / lengthMul, across / widthMul)
+  }
 }
 
 /** Builds the full playable Hole (geometry plus height and lie queries) from its definition. */
@@ -228,12 +311,14 @@ export function buildHole(def: HoleDef): Hole {
   const ponds = (def.ponds ?? []).map(p => featureToWorld(segs, len, p))
   const wind = windVector(def, segs[0].d)
   const project = (x: number, z: number) => projectOnto(segs, x, z)
+  const greenDist = makeGreenDist(def, green, segs[segs.length - 1].d)
+  const halfWidth = (along: number) => fairwayHalfWidth(def, len, along)
 
-  const shape: HoleShape = { def, len, green, bunkers, ponds, project }
+  const shape: HoleShape = { def, len, green, bunkers, ponds, project, greenDist, halfWidth }
   const height = (x: number, z: number) => heightAt(shape, x, z)
   const lie = (x: number, z: number) => lieAt(shape, x, z)
 
-  return { def, path, len, green, pin, tee: [0, 0], bunkers, ponds, wind, project, height, lie }
+  return { def, path, len, green, pin, tee: [0, 0], bunkers, ponds, wind, project, greenDist, halfWidth, height, lie }
 }
 
 /**

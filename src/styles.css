@@ -89,6 +89,8 @@ kbd { font-family: inherit; font-size: 10px; font-weight: 700; padding: 1px 6px;
 .btn { pointer-events: auto; font-family: inherit; font-size: 16px; font-weight: 800; padding: 14px 30px; border-radius: 14px; border: 0; cursor: pointer; background: linear-gradient(135deg, #ffd23f, #ff9f1c); color: #1b1b1b; box-shadow: 0 8px 30px rgba(255,170,40,.35); }
 .overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(4,12,20,.55); backdrop-filter: blur(6px); }
 .overlay .glass { padding: 30px 36px; max-width: 620px; line-height: 1.7; }
+/* The pause/help screen has a lot of text: wider, capped to the window height, and scrollable. */
+.overlay .glass.pause { width: min(820px, 94vw); max-width: none; max-height: 86vh; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; pointer-events: auto; }
 table.card { border-collapse: separate; border-spacing: 5px; margin: 18px auto; }
 table.card td { text-align: center; min-width: 34px; font-variant-numeric: tabular-nums; }
 

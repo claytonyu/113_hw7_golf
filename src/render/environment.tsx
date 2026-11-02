@@ -6,6 +6,7 @@ import { useFrame } from '@react-three/fiber'
 import { Sky, Environment } from '@react-three/drei'
 import * as THREE from 'three'
 import { waterNormals } from './textures'
+import { OCEAN_Y } from '../config'
 
 /** Sun direction (also used as an offset from the focus point to place the shadow light). */
 export const SUN = new THREE.Vector3(-120, 90, -160)
@@ -39,7 +40,7 @@ export function Atmosphere({ focus }: { focus: () => number[] }) {
   </>
 }
 
-/** A large flat ocean plane at y = -20.5 with a slowly scrolling wave normal map. */
+/** A large flat ocean plane at y = OCEAN_Y with a slowly scrolling wave normal map. */
 export function Ocean() {
   const tex = useMemo(waterNormals, [])
   useFrame((_, dt) => {
@@ -47,7 +48,7 @@ export function Ocean() {
     tex.offset.y += dt * 0.0025
   })
   useEffect(() => { tex.repeat.set(160, 160) }, [tex])
-  return <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -20.5, 300]}>
+  return <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, OCEAN_Y, 300]}>
     <planeGeometry args={[6000, 6000]} />
     <meshStandardMaterial
       color="#1b6a8f" roughness={0.12} metalness={0.35}

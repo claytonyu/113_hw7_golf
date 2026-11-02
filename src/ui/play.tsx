@@ -48,7 +48,12 @@ export function Play({ init, onExit, onSaveExit }: {
   useEffect(() => {
     const actions = {
       refresh,
-      togglePause: () => setPaused(p => !p),
+      togglePause: () => {
+        // The flag on the game state stops the frame loop and gameplay keys; the React state shows the overlay.
+        const gs = g.current!
+        gs.paused = !gs.paused
+        setPaused(gs.paused)
+      },
       finishRound: onExit,
     }
     const down = (e: KeyboardEvent) => handleKeyDown(g.current!, e, actions)
@@ -60,7 +65,7 @@ export function Play({ init, onExit, onSaveExit }: {
     <Canvas shadows dpr={[1, 2]} camera={{ fov: 50, near: 0.05, far: 4000 }} gl={{ antialias: true }}>
       <World g={gs} pv={pv} />
     </Canvas>
-    <Hud g={gs} />
+    <Hud g={gs} pv={pv} />
     {paused && <PauseOverlay onSaveExit={onSaveExit} onQuit={() => onExit(roundResult(gs))} />}
   </div>
 }

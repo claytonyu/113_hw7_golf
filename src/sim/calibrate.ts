@@ -4,7 +4,9 @@
  * windless flight lands at that carry. The real shot then runs the full
  * simulation (wind, terrain, curve) from that speed.
  */
-import { airAccel, DT, ROLL, SPIN_DECAY } from './sim'
+import { airAccel, DT, SPIN_DECAY } from './sim'
+import { ROLL } from '../config'
+import { dirOf, type Hole } from '../course/course'
 
 const NO_WIND = [0, 0, 0]
 const FLAT_ACC = [0, 0, 0] // scratch buffer
@@ -47,8 +49,35 @@ export function speedForCarry(carryM: number, launchDeg: number, spin = 0) {
   return lo
 }
 
+/** Spacing (m) of the lie samples along a putt's line. */
+const PUTT_SAMPLE = 0.25
+
+/** Speed (m/s) below which a rolling ball on gentle ground comes to rest (matches stepRoll). */
+const REST_SPEED = 0.05
+
 /**
- * Starting speed for a putt that rolls `d` meters on a flat green.
- * Under constant deceleration a, distance = v^2 / 2a, so v = sqrt(2 a d).
+ * Starting speed for a putt that rolls `d` meters along `heading` from `from`
+ * on level ground. Each stretch of the line slows the ball by its own lie's
+ * rolling friction (green, fringe, rough...), so putts from off the green get
+ * enough pace. Slopes are deliberately left out: reading them is the player's job.
+ *
+ * Works backward from the resting point. Under deceleration a, one fixed sim
+ * step that covers ds removes about 2·a·ds·(1 + a·DT/v) of v² (the second term
+ * is the fixed-step integration's extra loss, which matters at low speed in rough).
  */
-export const speedForPutt = (d: number) => Math.sqrt(2 * ROLL.green * Math.max(0.2, d))
+export function speedForPutt(hole: Hole, from: number[], heading: number, d: number) {
+  const dist = Math.max(0.2, d)
+  const [dx, dz] = dirOf(heading)
+  let v = REST_SPEED
+  for (let s = dist; s > 0; s -= PUTT_SAMPLE) {
+    const ds = Math.min(PUTT_SAMPLE, s)
+    const mid = s - ds / 2
+    const a = ROLL[hole.lie(from[0] + dx * mid, from[2] + dz * mid)] ?? ROLL.green
+    // Two half-stretches keep the low-speed term accurate.
+    for (let k = 0; k < 2; k++) {
+      const h = ds / 2
+      v = Math.sqrt(v * v + 2 * a * h * (1 + a * DT / Math.max(v, a * DT)))
+    }
+  }
+  return v
+}

@@ -22,5 +22,10 @@
 
 - Save and resume: the round autosaves at each hole start, strike and shot end; reloading mid-flight replays the same shot; Resume on the menu, Save & exit / Abandon in the pause screen
 
+- Handoff fixes: real pause, faster putt-distance stepping, off-green putt pace, putt slope readout, minimap shows the simulated path,
+  cliff/beach are penalty areas (water only below sea level), penalty relief choices (keys 1/2, saved across reloads), U = unplayable,
+  C cycles four cameras (Behind ball, High, Ball follow, Landing), simulated landing dispersion, per-hole canyons, fairway pinches,
+  elevation profiles and oval greens, physics surface tables moved to config.ts
+
 ## To do
 - Polish: smoother terrain up close, menu camera, performance tuning

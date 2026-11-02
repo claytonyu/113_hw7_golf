@@ -76,11 +76,11 @@ const GRID_STEP = 1.4
 function buildSlopeArrows(hole: Hole) {
   const pts: number[] = [], cols: number[] = []
   const [gx, gz] = hole.green
-  const R = hole.def.greenR + 1
+  const R = hole.def.greenR * 1.5 // covers stretched oval greens; points off the green are skipped below
   for (let x = -R; x <= R; x += GRID_STEP) {
     for (let z = -R; z <= R; z += GRID_STEP) {
-      if (x * x + z * z > R * R) continue
       const px = gx + x, pz = gz + z
+      if (hole.greenDist(px, pz) > hole.def.greenR + 1) continue
       const [sx, sz] = grad(hole, px, pz)
       const m = Math.hypot(sx, sz) || 1e-6
       const y = hole.height(px, pz) + 0.03

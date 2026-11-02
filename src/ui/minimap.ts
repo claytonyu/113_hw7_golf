@@ -3,11 +3,11 @@
  * plus a function mapping world coordinates to map pixels.
  */
 import { useMemo } from 'react'
-import type { Hole } from '../course/course'
+import { CLIFF_LIP, type Hole } from '../course/course'
 
 const LIE_RGB: Record<string, number[]> = {
   green: [79, 210, 90], fairway: [100, 178, 70], tee: [100, 178, 70], rough: [52, 110, 42],
-  sand: [240, 224, 180], water: [40, 120, 160], oob: [38, 70, 40],
+  sand: [240, 224, 180], water: [40, 120, 160], hazard: [150, 118, 80], oob: [38, 70, 40],
 }
 const CLIFF_RGB = [190, 155, 115]
 
@@ -50,9 +50,10 @@ export function renderMinimap(h: Hole): Minimap {
   const img = ctx.createImageData(Wc, Hc)
   for (let j = 0; j < Hc; j++) {
     for (let i = 0; i < Wc; i++) {
-      const x = x1 - i / sc, z = z1 - j / sc
+      // Sample at the pixel's center so the image lines up with map() (used for the ball, pin and lines).
+      const x = x1 - (i + 0.5) / sc, z = z1 - (j + 0.5) / sc
       const lie = h.lie(x, z)
-      const cliff = h.def.ocean && h.project(x, z).lat * h.def.ocean.side > h.def.ocean.dist + 1
+      const cliff = h.def.ocean && h.project(x, z).lat * h.def.ocean.side > h.def.ocean.dist + CLIFF_LIP
       const rgb = cliff && lie !== 'water' ? CLIFF_RGB : LIE_RGB[lie]
       img.data.set([rgb[0], rgb[1], rgb[2], 255], (j * Wc + i) * 4)
     }
